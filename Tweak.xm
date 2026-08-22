@@ -58,14 +58,10 @@ static void SGSetValue(id object, id value, NSString *key) {
 }
 
 static NSString *SGEffectiveFilterType(UIView *view) {
-    NSString *type = kSGFilterType;
-
-    if (@available(iOS 13.0, *)) {
-        if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark)
-            type = [type stringByAppendingString:@".dark"];
-    }
-
-    return type;
+    (void)view;
+    // Use the exact filter registered by LiquidAss.
+    // The LiquidAss renderer itself handles light/dark variants.
+    return kSGFilterType;
 }
 
 #pragma mark - Live Liquid Glass
@@ -166,7 +162,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     ];
 
     _specular.locations = @[
-        @0.0, @0.12, @0.48, @0.82, @1.0
+        @0.0, @0.10, @0.46, @0.84, @1.0
     ];
 
     _specularBoost.colors = @[
@@ -176,7 +172,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     ];
 
     _specularBoost.locations = @[
-        @0.0, @0.50, @1.0
+        @0.0, @0.44, @1.0
     ];
 }
 
@@ -198,7 +194,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * remaining a lighting effect rather than a uniform outline.
      */
     CGFloat inset = 1.30;
-    CGFloat edgeWidth = 2.60;
+    CGFloat edgeWidth = 3.20;
 
     UIBezierPath *path =
         [UIBezierPath bezierPathWithRoundedRect:
@@ -215,7 +211,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     _specularBoostMask.path = path.CGPath;
     _specularBoostMask.fillColor = UIColor.clearColor.CGColor;
     _specularBoostMask.strokeColor = UIColor.whiteColor.CGColor;
-    _specularBoostMask.lineWidth = edgeWidth * 0.72;
+    _specularBoostMask.lineWidth = edgeWidth * 0.62;
 
     /*
      * Diagonal Fresnel-like highlight, matching the LiquidAss visual
@@ -290,29 +286,37 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         return;
 
     /*
-     * Stronger Liquid Glass refraction.
-     * These are intentionally applied only to the Liquid Glass
-     * filter, leaving the existing blur/specular design unchanged.
+     * LiquidAss LGHostRegistry.h -> SearchPill:
+     *
+     * glassThickness  = 18.0
+     * refractionScale = 1.6
+     * refractiveIndex = 1.70
+     * blur            = 1.0
+     * specularOpacity = 1.0
+     *
+     * These are the parameters used by LiquidAss's registered
+     * dylv.liquidglass.searchpill renderer. Do not replace the
+     * registered filter with a generic gaussian blur.
      */
-    SGSetValue(glassFilter, @6.0, @"inputRefraction");
-    SGSetValue(glassFilter, @4.0, @"inputDisplacement");
-    SGSetValue(glassFilter, @4.0, @"inputDisplacementRadius");
-    SGSetValue(glassFilter, @3.0, @"inputDistortion");
-    SGSetValue(glassFilter, @2.0, @"inputDistortionScale");
-    SGSetValue(glassFilter, @2.15, @"inputRefractiveIndex");
-    SGSetValue(glassFilter, @1.20, @"inputScale");
-    SGSetValue(glassFilter, @1.45, @"inputBlur");
-    SGSetValue(glassFilter, @1.15, @"inputSpecular");
+    SGSetValue(glassFilter, @18.0, @"inputGlassThickness");
+    SGSetValue(glassFilter, @18.0, @"glassThickness");
+    SGSetValue(glassFilter, @1.60, @"inputRefraction");
+    SGSetValue(glassFilter, @1.60, @"refraction");
+    SGSetValue(glassFilter, @1.70, @"inputRefractiveIndex");
+    SGSetValue(glassFilter, @1.70, @"refractiveIndex");
+    SGSetValue(glassFilter, @1.0, @"inputBlur");
+    SGSetValue(glassFilter, @1.0, @"blur");
+    SGSetValue(glassFilter, @1.0, @"inputSpecular");
+    SGSetValue(glassFilter, @1.0, @"specular");
 
     /*
-     * Liquid (Gl)ass SearchPill builds use these shorter keys.
-     * Setting both forms is harmless because SGSetValue safely
-     * ignores keys that are not exposed by the current filter.
+     * Extra displacement aliases are attempted only when exposed by
+     * a compatible LiquidAss/iOS build. Unknown keys are ignored.
      */
-    SGSetValue(glassFilter, @6.0, @"refraction");
-    SGSetValue(glassFilter, @2.15, @"refractiveIndex");
-    SGSetValue(glassFilter, @1.45, @"blur");
-    SGSetValue(glassFilter, @1.15, @"specular");
+    SGSetValue(glassFilter, @1.60, @"inputRefractionScale");
+    SGSetValue(glassFilter, @1.60, @"refractionScale");
+    SGSetValue(glassFilter, @0.0, @"inputDispersion");
+    SGSetValue(glassFilter, @0.0, @"dispersionStrength");
 }
 
 - (void)applyLiquidGlass {
@@ -369,20 +373,22 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         NSString *filterType =
             SGEffectiveFilterType(self);
 
-        id glassFilter =
-            SGFilterWithType(filterType);
+        id glassFilter = SGFilterWithType(filterType);
+
+        // Try the same base type through both CAFilter constructors.
+        if (!glassFilter)
+            glassFilter = SGFilterWithName(kSGFilterType);
 
         /*
-         * Some builds register only the base filter name.
-         * Try it before falling back to gaussian blur.
+         * LiquidAss also registers the generic refraction material.
+         * It is a better fallback than gaussianBlur because it preserves
+         * the actual Liquid Glass refraction renderer.
          */
+        if (!glassFilter)
+            glassFilter = SGFilterWithType(@"dylv.liquidglass.refraction");
 
-        if (!glassFilter &&
-            ![filterType isEqualToString:kSGFilterType]) {
-
-            glassFilter =
-                SGFilterWithType(kSGFilterType);
-        }
+        if (!glassFilter)
+            glassFilter = SGFilterWithName(@"dylv.liquidglass.refraction");
 
         if (glassFilter) {
             [self configureRefractionFilter:glassFilter];
