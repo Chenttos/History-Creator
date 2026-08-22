@@ -1,1 +1,68 @@
+{
+    PreferenceSpecifiers = (
+        {
+            Type = "PSGroupCell";
+            Label = "Settings Glass Search";
+            FooterText = "Customize the glass search bar in Settings.";
+        },
 
+        {
+            Type = "PSSwitchCell";
+            Title = "Enabled";
+            Key = "enabled";
+            DefaultValue = YES;
+            PostNotification = "com.samuel.settingsglasssearch/preferencesChanged";
+        },
+
+        {
+            Type = "PSGroupCell";
+            Label = "Appearance";
+        },
+
+        {
+            Type = "PSSliderCell";
+            Title = "Glass Opacity";
+            Key = "opacity";
+            DefaultValue = 0.72;
+            MinimumValue = 0.30;
+            MaximumValue = 1.00;
+            IsContinuous = YES;
+            PostNotification = "com.samuel.settingsglasssearch/preferencesChanged";
+        },
+
+        {
+            Type = "PSSliderCell";
+            Title = "Blur";
+            Key = "blur";
+            DefaultValue = 18.0;
+            MinimumValue = 1.0;
+            MaximumValue = 40.0;
+            IsContinuous = YES;
+            PostNotification = "com.samuel.settingsglasssearch/preferencesChanged";
+        },
+
+        {
+            Type = "PSSliderCell";
+            Title = "Corner Radius";
+            Key = "radius";
+            DefaultValue = 28.0;
+            MinimumValue = 8.0;
+            MaximumValue = 45.0;
+            IsContinuous = YES;
+            PostNotification = "com.samuel.settingsglasssearch/preferencesChanged";
+        },
+
+        {
+            Type = "PSGroupCell";
+            Label = "Information";
+        },
+
+        {
+            Type = "PSGroupCell";
+            Label = "Settings Glass Search";
+            FooterText = "Tap the glass search bar to open the native Settings search.";
+        }
+    );
+
+    title = "Glass Search";
+}
