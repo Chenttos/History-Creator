@@ -4,7 +4,7 @@
  * https://github.com/winaviation-tweaks/liquidass
  *
  * Uses the same Liquid (Gl)ass render-server approach:
- * CABackdropLayer + CAFilter + live refraction + specular reflection / Fresnel edge highlights.
+ * CABackdropLayer + CAFilter + live refraction + specular reflection.
  *
  * GPL-3.0 applies to code derived from Liquid (Gl)ass.
  */
@@ -106,7 +106,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         MIN(CGRectGetWidth(frame), CGRectGetHeight(frame)) * 0.5;
 
     [self setupSpecular];
-    [self updateSpecularAppearance];
     [self applyLiquidGlass];
 
     return self;
@@ -114,38 +113,40 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
 - (void)setupSpecular {
     /*
-     * LiquidAss-style edge specular approximation.
-     *
-     * LiquidAss describes its Metal shader as using the rounded-card
-     * edge band to drive a Fresnel/specular lift.  This keeps that
-     * same idea here: the highlight is concentrated on the curved
-     * glass rim instead of painting a flat white layer over the body.
-     *
-     * Two passes are used:
-     *   1. a soft, wide Fresnel-like rim
-     *   2. a sharper, brighter specular catchlight
+     * Same visual concept used by LGLiveBackdropView:
+     * a normal specular gradient and a stronger overlay-blended
+     * gradient, both clipped to the rounded glass shape.
      */
 
     _specular = [CAGradientLayer layer];
+
     _specular.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.70].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.05].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.42].CGColor
+        (id)[UIColor colorWithWhite:1.0 alpha:0.30].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.12].CGColor
     ];
+
     _specular.locations = @[
-        @0.0, @0.46, @1.0
+        @0.0,
+        @0.50,
+        @1.0
     ];
 
     _specularBoost = [CAGradientLayer layer];
+
     _specularBoost.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.95].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.0].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.68].CGColor
+        (id)[UIColor colorWithWhite:1.0 alpha:0.32].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor
     ];
+
     _specularBoost.locations = @[
-        @0.0, @0.44, @1.0
+        @0.0,
+        @0.50,
+        @1.0
     ];
-    _specularBoost.compositingFilter = @"screenBlendMode";
+
+    _specularBoost.compositingFilter = @"overlayBlendMode";
 
     _specularMask = [CAShapeLayer layer];
     _specularBoostMask = [CAShapeLayer layer];
@@ -155,36 +156,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     [self.layer addSublayer:_specular];
     [self.layer addSublayer:_specularBoost];
-}
-
-- (void)updateSpecularAppearance {
-    BOOL dark = NO;
-
-    if (@available(iOS 13.0, *)) {
-        dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
-    }
-
-    UIColor *specularColor = dark ? UIColor.whiteColor : UIColor.blackColor;
-
-    _specular.colors = @[
-        (id)[specularColor colorWithAlphaComponent:0.70].CGColor,
-        (id)[specularColor colorWithAlphaComponent:0.05].CGColor,
-        (id)[specularColor colorWithAlphaComponent:0.42].CGColor
-    ];
-
-    _specularBoost.colors = @[
-        (id)[specularColor colorWithAlphaComponent:0.95].CGColor,
-        (id)[specularColor colorWithAlphaComponent:0.0].CGColor,
-        (id)[specularColor colorWithAlphaComponent:0.68].CGColor
-    ];
-
-    /*
-     * Do not use screen/overlay compositing here.
-     * It can pick up colors from the refracted background and make
-     * a white highlight appear blue/purple. The highlight itself
-     * must remain strictly monochrome.
-     */
-    _specularBoost.compositingFilter = nil;
 }
 
 - (void)layoutSpecular {
@@ -199,20 +170,20 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     UIBezierPath *path =
         [UIBezierPath bezierPathWithRoundedRect:
-            CGRectInset(bounds, 1.5, 1.5)
-            cornerRadius:MAX(0.0, radius - 1.5)];
+            CGRectInset(bounds, 0.35, 0.35)
+            cornerRadius:MAX(0.0, radius - 0.35)];
 
     _specularMask.frame = bounds;
     _specularMask.path = path.CGPath;
     _specularMask.fillColor = UIColor.clearColor.CGColor;
     _specularMask.strokeColor = UIColor.blackColor.CGColor;
-    _specularMask.lineWidth = 3.2;
+    _specularMask.lineWidth = 1.0;
 
     _specularBoostMask.frame = bounds;
     _specularBoostMask.path = path.CGPath;
     _specularBoostMask.fillColor = UIColor.clearColor.CGColor;
     _specularBoostMask.strokeColor = UIColor.blackColor.CGColor;
-    _specularBoostMask.lineWidth = 1.35;
+    _specularBoostMask.lineWidth = 1.0;
 
     /*
      * Same default specular angle used by Liquid (Gl)ass.
@@ -292,22 +263,22 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * These are intentionally applied only to the Liquid Glass
      * filter, leaving the existing blur/specular design unchanged.
      */
-    SGSetValue(glassFilter, @4.50, @"inputRefraction");
-    SGSetValue(glassFilter, @2.20, @"inputRefractiveIndex");
-    SGSetValue(glassFilter, @2.50, @"inputDisplacement");
-    SGSetValue(glassFilter, @1.55, @"inputScale");
+    SGSetValue(glassFilter, @2.35, @"inputRefraction");
+    SGSetValue(glassFilter, @1.85, @"inputRefractiveIndex");
+    SGSetValue(glassFilter, @1.35, @"inputDisplacement");
+    SGSetValue(glassFilter, @1.20, @"inputScale");
     SGSetValue(glassFilter, @1.0, @"inputBlur");
-    SGSetValue(glassFilter, @1.35, @"inputSpecular");
+    SGSetValue(glassFilter, @1.0, @"inputSpecular");
 
     /*
      * Liquid (Gl)ass SearchPill builds use these shorter keys.
      * Setting both forms is harmless because SGSetValue safely
      * ignores keys that are not exposed by the current filter.
      */
-    SGSetValue(glassFilter, @4.50, @"refraction");
-    SGSetValue(glassFilter, @2.20, @"refractiveIndex");
+    SGSetValue(glassFilter, @2.35, @"refraction");
+    SGSetValue(glassFilter, @1.85, @"refractiveIndex");
     SGSetValue(glassFilter, @1.0, @"blur");
-    SGSetValue(glassFilter, @1.35, @"specular");
+    SGSetValue(glassFilter, @1.0, @"specular");
 }
 
 - (void)applyLiquidGlass {
@@ -420,7 +391,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         if (previousTraitCollection.userInterfaceStyle !=
             self.traitCollection.userInterfaceStyle) {
 
-            [self updateSpecularAppearance];
             [self applyLiquidGlass];
         }
     }
@@ -433,7 +403,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.layer.cornerCurve = kCACornerCurveContinuous;
     self.layer.masksToBounds = YES;
 
-    [self updateSpecularAppearance];
     [self layoutSpecular];
 
     if (!self.liquidFilterAvailable)
@@ -449,6 +418,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @property(nonatomic, strong) UIImageView *searchIcon;
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UIImageView *micIcon;
+@property(nonatomic, strong) UIView *borderOverlay;
 @end
 
 @implementation SGSearchButton
@@ -583,6 +553,17 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     [self addSubview:self.micIcon];
 
+    // Dedicated topmost outline so the thin border stays visible over the glass.
+    self.borderOverlay = [[UIView alloc] initWithFrame:self.bounds];
+    self.borderOverlay.backgroundColor = UIColor.clearColor;
+    self.borderOverlay.userInteractionEnabled = NO;
+    self.borderOverlay.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth |
+        UIViewAutoresizingFlexibleHeight;
+    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
+    self.borderOverlay.layer.borderWidth = 0.8;
+    [self addSubview:self.borderOverlay];
+
     [self updateTextAppearance];
 }
 
@@ -603,6 +584,9 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.searchIcon.tintColor = foreground;
     self.micIcon.tintColor = foreground;
 
+    // Thin 0.8pt outline: white in Dark Mode, black in Light Mode.
+    self.borderOverlay.layer.borderColor = foreground.CGColor;
+    self.borderOverlay.layer.borderWidth = 0.8;
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
@@ -633,6 +617,9 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.layer.cornerRadius = self.glassView.cornerRadius;
     self.layer.cornerCurve = kCACornerCurveContinuous;
 
+    self.borderOverlay.frame = self.bounds;
+    self.borderOverlay.layer.cornerRadius = self.glassView.cornerRadius;
+    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
 
     self.searchIcon.frame =
         CGRectMake(11.0,
