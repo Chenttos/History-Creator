@@ -106,6 +106,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         MIN(CGRectGetWidth(frame), CGRectGetHeight(frame)) * 0.5;
 
     [self setupSpecular];
+    [self updateSpecularAppearance];
     [self applyLiquidGlass];
 
     return self;
@@ -121,9 +122,9 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     _specular = [CAGradientLayer layer];
 
     _specular.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.30].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.78].CGColor,
         (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.12].CGColor
+        (id)[UIColor colorWithWhite:1.0 alpha:0.36].CGColor
     ];
 
     _specular.locations = @[
@@ -135,9 +136,9 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     _specularBoost = [CAGradientLayer layer];
 
     _specularBoost.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.32].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.62].CGColor,
         (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor
+        (id)[UIColor colorWithWhite:1.0 alpha:0.28].CGColor
     ];
 
     _specularBoost.locations = @[
@@ -156,6 +157,27 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     [self.layer addSublayer:_specular];
     [self.layer addSublayer:_specularBoost];
+}
+
+- (void)updateSpecularAppearance {
+    BOOL dark = NO;
+
+    if (@available(iOS 13.0, *))
+        dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
+
+    CGFloat white = dark ? 1.0 : 0.0;
+
+    _specular.colors = @[
+        (id)[UIColor colorWithWhite:white alpha:0.78].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:white alpha:0.36].CGColor
+    ];
+
+    _specularBoost.colors = @[
+        (id)[UIColor colorWithWhite:white alpha:0.62].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:white alpha:0.28].CGColor
+    ];
 }
 
 - (void)layoutSpecular {
@@ -394,6 +416,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         if (previousTraitCollection.userInterfaceStyle !=
             self.traitCollection.userInterfaceStyle) {
 
+            [self updateSpecularAppearance];
             [self applyLiquidGlass];
         }
     }
@@ -415,6 +438,8 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @end
 
 #pragma mark - Search button
+
+static UISearchBar *SGFindRealSearchBarInView(UIView *view);
 
 @interface SGSearchButton : UIControl
 @property(nonatomic, strong) SGLiveGlassView *glassView;
@@ -816,6 +841,62 @@ static BOOL SGIsMainSettingsController(
     return YES;
 }
 
+#pragma mark - Real Settings Search visibility
+
+static UISearchBar *SGFindRealSearchBarInView(UIView *view) {
+    if (!view) return nil;
+
+    if ([view isKindOfClass:[UISearchBar class]])
+        return (UISearchBar *)view;
+
+    for (UIView *subview in view.subviews) {
+        UISearchBar *found = SGFindRealSearchBarInView(subview);
+        if (found) return found;
+    }
+
+    return nil;
+}
+
+static BOOL SGSearchBarIsActuallyVisible(UISearchBar *searchBar) {
+    if (!searchBar || searchBar.hidden || searchBar.alpha < 0.01)
+        return NO;
+
+    UIWindow *window = searchBar.window;
+    if (!window || window.hidden || window.alpha < 0.01)
+        return NO;
+
+    CGRect rect = [searchBar convertRect:searchBar.bounds toView:window];
+    CGRect intersection = CGRectIntersection(rect, window.bounds);
+
+    if (CGRectIsNull(intersection) ||
+        CGRectGetWidth(intersection) < 8.0 ||
+        CGRectGetHeight(intersection) < 8.0)
+        return NO;
+
+    return YES;
+}
+
+static void SGSetSearchGlassVisibility(UIViewController *controller) {
+    if (!controller || !controller.view)
+        return;
+
+    SGSearchButton *button =
+        (SGSearchButton *)[controller.view viewWithTag:kSGSearchGlassTag];
+
+    if (!button)
+        return;
+
+    if (!SGIsMainSettingsController(controller)) {
+        button.hidden = YES;
+        return;
+    }
+
+    UISearchBar *realSearch =
+        SGFindRealSearchBarInView(controller.view);
+
+    button.hidden = SGSearchBarIsActuallyVisible(realSearch);
+}
+
 static void SGInstallSearchGlass(
     UIViewController *controller
 ) {
@@ -832,6 +913,7 @@ static void SGInstallSearchGlass(
 
     if (existing) {
         [view bringSubviewToFront:existing];
+        SGSetSearchGlassVisibility(controller);
         return;
     }
 
@@ -873,6 +955,64 @@ static void SGInstallSearchGlass(
 
     [view addSubview:button];
     [view bringSubviewToFront:button];
+    SGSetSearchGlassVisibility(controller);
+}
+
+#pragma mark - Visibility polling
+
+static const void *kSGVisibilityTimerKey = &kSGVisibilityTimerKey;
+
+static void SGStartVisibilityPolling(UIViewController *controller) {
+    if (!controller) return;
+
+    NSTimer *oldTimer =
+        objc_getAssociatedObject(controller, kSGVisibilityTimerKey);
+
+    if (oldTimer && oldTimer.valid)
+        return;
+
+    __weak UIViewController *weakController = controller;
+
+    NSTimer *timer =
+        [NSTimer scheduledTimerWithTimeInterval:0.12
+                                         repeats:YES
+                                           block:^(NSTimer *t) {
+        UIViewController *strongController = weakController;
+
+        if (!strongController ||
+            !strongController.view.window ||
+            !SGIsMainSettingsController(strongController)) {
+            [t invalidate];
+
+            if (strongController)
+                objc_setAssociatedObject(strongController,
+                                         kSGVisibilityTimerKey,
+                                         nil,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            return;
+        }
+
+        SGSetSearchGlassVisibility(strongController);
+    }];
+
+    objc_setAssociatedObject(controller,
+                             kSGVisibilityTimerKey,
+                             timer,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void SGStopVisibilityPolling(UIViewController *controller) {
+    if (!controller) return;
+
+    NSTimer *timer =
+        objc_getAssociatedObject(controller, kSGVisibilityTimerKey);
+
+    [timer invalidate];
+
+    objc_setAssociatedObject(controller,
+                             kSGVisibilityTimerKey,
+                             nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 #pragma mark - Logos hooks
@@ -885,10 +1025,33 @@ static void SGInstallSearchGlass(
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
 
-    if (!SGIsMainSettingsController(self))
+    if (!SGIsMainSettingsController(self)) {
+        SGStopVisibilityPolling(self);
+
+        SGSearchButton *button =
+            (SGSearchButton *)[self.view viewWithTag:kSGSearchGlassTag];
+
+        if (button)
+            button.hidden = YES;
+
         return;
+    }
 
     SGInstallSearchGlass(self);
+    SGStartVisibilityPolling(self);
+    SGSetSearchGlassVisibility(self);
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    %orig;
+
+    SGStopVisibilityPolling(self);
+
+    SGSearchButton *button =
+        (SGSearchButton *)[self.view viewWithTag:kSGSearchGlassTag];
+
+    if (button)
+        button.hidden = YES;
 }
 
 %end
@@ -910,8 +1073,20 @@ static void SGInstallSearchGlass(
     UIViewController *top =
         self.topViewController;
 
-    if (SGIsMainSettingsController(top))
+    if (SGIsMainSettingsController(top)) {
         SGInstallSearchGlass(top);
+        SGSetSearchGlassVisibility(top);
+    } else {
+        UIViewController *root = self.viewControllers.firstObject;
+
+        if (root.view) {
+            SGSearchButton *button =
+                (SGSearchButton *)[root.view viewWithTag:kSGSearchGlassTag];
+
+            if (button)
+                button.hidden = YES;
+        }
+    }
 }
 
 %end
