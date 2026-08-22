@@ -1,250 +1,394 @@
+/*
+ * SearchGlass
+ * Liquid Glass renderer adapted from the public Liquid (Gl)ass project:
+ * https://github.com/winaviation-tweaks/liquidass
+ *
+ * Uses the same Liquid (Gl)ass render-server approach:
+ * CABackdropLayer + CAFilter + live refraction + specular reflection.
+ *
+ * GPL-3.0 applies to code derived from Liquid (Gl)ass.
+ */
+
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 
-#pragma mark - SearchGlass
+#pragma mark - Liquid Glass constants
 
-@interface SGGlassView : UIVisualEffectView
-@property(nonatomic, strong) CAGradientLayer *borderGradient;
-@property(nonatomic, strong) CAGradientLayer *highlightGradient;
-@property(nonatomic, strong) CAShapeLayer *innerHighlight;
-@property(nonatomic, strong) CAShapeLayer *innerShadow;
+static NSString * const kSGFilterType = @"dylv.liquidglass.searchpill";
+static NSString * const kSGGroupNamespace = @"dylv.liquidglass";
+static NSString * const kSGGroupName = @"SearchGlass";
+
+static Class SGBackdropClass(void) {
+    return NSClassFromString(@"CABackdropLayer");
+}
+
+static Class SGFilterClass(void) {
+    return NSClassFromString(@"CAFilter");
+}
+
+static id SGFilterWithType(NSString *type) {
+    Class cls = SGFilterClass();
+    if (!cls || !type.length) return nil;
+
+    SEL selector = NSSelectorFromString(@"filterWithType:");
+    if (![cls respondsToSelector:selector]) return nil;
+
+    return ((id (*)(Class, SEL, NSString *))objc_msgSend)(cls, selector, type);
+}
+
+static id SGFilterWithName(NSString *name) {
+    Class cls = SGFilterClass();
+    if (!cls || !name.length) return nil;
+
+    SEL selector = NSSelectorFromString(@"filterWithName:");
+    if (![cls respondsToSelector:selector]) return nil;
+
+    return ((id (*)(Class, SEL, NSString *))objc_msgSend)(cls, selector, name);
+}
+
+static void SGSetValue(id object, id value, NSString *key) {
+    if (!object || !key.length) return;
+
+    @try {
+        [object setValue:value forKey:key];
+    } @catch (__unused NSException *exception) {
+    }
+}
+
+static NSString *SGEffectiveFilterType(UIView *view) {
+    NSString *type = kSGFilterType;
+
+    if (@available(iOS 13.0, *)) {
+        if (view.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark)
+            type = [type stringByAppendingString:@".dark"];
+    }
+
+    return type;
+}
+
+#pragma mark - Live Liquid Glass
+
+@interface SGLiveGlassView : UIView
+@property(nonatomic, assign) CGFloat cornerRadius;
+@property(nonatomic, assign) BOOL liquidFilterAvailable;
+- (void)applyLiquidGlass;
 @end
 
-@implementation SGGlassView
+@implementation SGLiveGlassView {
+    CAGradientLayer *_specular;
+    CAGradientLayer *_specularBoost;
+    CAShapeLayer *_specularMask;
+    CAShapeLayer *_specularBoostMask;
+    CALayer *_nativeBlurLayer;
+}
+
++ (Class)layerClass {
+    Class backdrop = SGBackdropClass();
+    return backdrop ?: [CALayer class];
+}
 
 - (instancetype)initWithFrame:(CGRect)frame {
-    UIBlurEffect *blur =
-        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
+    self = [super initWithFrame:frame];
 
-    self = [super initWithEffect:blur];
+    if (!self) return nil;
 
-    if (self) {
-        self.frame = frame;
-        self.clipsToBounds = YES;
-        self.layer.cornerRadius = 22.0;
-        self.layer.masksToBounds = YES;
+    self.backgroundColor = UIColor.clearColor;
+    self.opaque = NO;
+    self.userInteractionEnabled = NO;
 
-        [self setupGlass];
-    }
+    self.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth |
+        UIViewAutoresizingFlexibleHeight;
+
+    self.cornerRadius =
+        MIN(CGRectGetWidth(frame), CGRectGetHeight(frame)) * 0.5;
+
+    [self setupSpecular];
+    [self applyLiquidGlass];
 
     return self;
 }
 
-- (void)setupGlass {
-
+- (void)setupSpecular {
     /*
-     * ============================================================
-     * BASE GLASS
-     * ============================================================
+     * Same visual concept used by LGLiveBackdropView:
+     * a normal specular gradient and a stronger overlay-blended
+     * gradient, both clipped to the rounded glass shape.
      */
 
-    UIView *glassTint = [[UIView alloc] initWithFrame:self.bounds];
+    _specular = [CAGradientLayer layer];
 
-    glassTint.autoresizingMask =
-        UIViewAutoresizingFlexibleWidth |
-        UIViewAutoresizingFlexibleHeight;
-
-    /*
-     * Muito pouca cor.
-     * Não usamos tint forte para preservar o efeito do SVG.
-     */
-    glassTint.backgroundColor =
-        [UIColor colorWithWhite:1.0 alpha:0.08];
-
-    glassTint.userInteractionEnabled = NO;
-
-    [self.contentView addSubview:glassTint];
-
-
-    /*
-     * ============================================================
-     * REFLEXO INTERNO
-     * ============================================================
-     *
-     * Cria a iluminação que percorre a parte superior/inferior
-     * do vidro.
-     */
-
-    self.highlightGradient = [CAGradientLayer layer];
-
-    self.highlightGradient.frame = self.bounds;
-
-    self.highlightGradient.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.20].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.035].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.00].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.055].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor
+    _specular.colors = @[
+        (id)[UIColor colorWithWhite:1.0 alpha:0.30].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.12].CGColor
     ];
 
-    self.highlightGradient.locations = @[
+    _specular.locations = @[
         @0.0,
-        @0.18,
         @0.50,
-        @0.82,
         @1.0
     ];
 
-    self.highlightGradient.startPoint = CGPointMake(0.5, 0.0);
-    self.highlightGradient.endPoint = CGPointMake(0.5, 1.0);
+    _specularBoost = [CAGradientLayer layer];
 
-    self.highlightGradient.cornerRadius = 22.0;
-
-    [self.layer addSublayer:self.highlightGradient];
-
-
-    /*
-     * ============================================================
-     * BORDA REFLETIVA
-     * ============================================================
-     *
-     * Vários pontos de luz para imitar o efeito do SVG:
-     *
-     * - luz branca superior
-     * - reflexão lateral
-     * - parte inferior mais escura
-     */
-
-    self.borderGradient = [CAGradientLayer layer];
-
-    self.borderGradient.frame = self.bounds;
-
-    self.borderGradient.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.62].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.15].CGColor,
-        (id)[UIColor colorWithWhite:0.0 alpha:0.20].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.11].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.55].CGColor
+    _specularBoost.colors = @[
+        (id)[UIColor colorWithWhite:1.0 alpha:0.32].CGColor,
+        (id)[UIColor clearColor].CGColor,
+        (id)[UIColor colorWithWhite:1.0 alpha:0.16].CGColor
     ];
 
-    self.borderGradient.locations = @[
-        @0.00,
-        @0.18,
+    _specularBoost.locations = @[
+        @0.0,
         @0.50,
-        @0.80,
-        @1.00
+        @1.0
     ];
 
-    self.borderGradient.startPoint = CGPointMake(0.05, 0.0);
-    self.borderGradient.endPoint = CGPointMake(0.95, 1.0);
+    _specularBoost.compositingFilter = @"overlayBlendMode";
 
-    self.borderGradient.cornerRadius = 22.0;
+    _specularMask = [CAShapeLayer layer];
+    _specularBoostMask = [CAShapeLayer layer];
 
-    /*
-     * Máscara para deixar somente a borda.
-     */
-    CAShapeLayer *borderMask = [CAShapeLayer layer];
+    _specular.mask = _specularMask;
+    _specularBoost.mask = _specularBoostMask;
 
-    CGRect borderRect =
-        CGRectInset(self.bounds, 0.45, 0.45);
+    [self.layer addSublayer:_specular];
+    [self.layer addSublayer:_specularBoost];
+}
 
-    UIBezierPath *outerPath =
-        [UIBezierPath bezierPathWithRoundedRect:borderRect
-                                    cornerRadius:21.55];
+- (void)layoutSpecular {
+    CGRect bounds = self.bounds;
+    CGFloat radius = self.cornerRadius;
 
-    UIBezierPath *innerPath =
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    _specular.frame = bounds;
+    _specularBoost.frame = bounds;
+
+    UIBezierPath *path =
         [UIBezierPath bezierPathWithRoundedRect:
-            CGRectInset(borderRect, 0.95, 0.95)
-                                    cornerRadius:20.60];
+            CGRectInset(bounds, 0.35, 0.35)
+            cornerRadius:MAX(0.0, radius - 0.35)];
 
-    [outerPath appendPath:innerPath];
+    _specularMask.frame = bounds;
+    _specularMask.path = path.CGPath;
+    _specularMask.fillColor = UIColor.clearColor.CGColor;
+    _specularMask.strokeColor = UIColor.blackColor.CGColor;
+    _specularMask.lineWidth = 1.0;
 
-    borderMask.path = outerPath.CGPath;
-    borderMask.fillRule = kCAFillRuleEvenOdd;
-
-    self.borderGradient.mask = borderMask;
-
-    [self.layer addSublayer:self.borderGradient];
-
-
-    /*
-     * ============================================================
-     * HIGHLIGHT SUPERIOR
-     * ============================================================
-     */
-
-    self.innerHighlight = [CAShapeLayer layer];
-
-    self.innerHighlight.frame = self.bounds;
-
-    self.innerHighlight.path =
-        [UIBezierPath bezierPathWithRoundedRect:
-            CGRectInset(self.bounds, 0.8, 0.8)
-            cornerRadius:21.2].CGPath;
-
-    self.innerHighlight.fillColor =
-        [UIColor clearColor].CGColor;
-
-    self.innerHighlight.strokeColor =
-        [UIColor colorWithWhite:1.0 alpha:0.28].CGColor;
-
-    self.innerHighlight.lineWidth = 0.55;
-
-    [self.layer addSublayer:self.innerHighlight];
-
+    _specularBoostMask.frame = bounds;
+    _specularBoostMask.path = path.CGPath;
+    _specularBoostMask.fillColor = UIColor.clearColor.CGColor;
+    _specularBoostMask.strokeColor = UIColor.blackColor.CGColor;
+    _specularBoostMask.lineWidth = 1.0;
 
     /*
-     * ============================================================
-     * SOMBRA INTERNA
-     * ============================================================
+     * Same default specular angle used by Liquid (Gl)ass.
      */
+    CGFloat angle = -M_PI_4;
+    CGFloat dx = cos(angle) * 0.5;
+    CGFloat dy = sin(angle) * 0.5;
 
-    self.innerShadow = [CAShapeLayer layer];
+    _specular.startPoint =
+        CGPointMake(0.5 + dx, 0.5 + dy);
 
-    self.innerShadow.frame = self.bounds;
+    _specular.endPoint =
+        CGPointMake(0.5 - dx, 0.5 - dy);
 
-    self.innerShadow.path =
-        [UIBezierPath bezierPathWithRoundedRect:
-            CGRectInset(self.bounds, 1.2, 1.2)
-            cornerRadius:20.8].CGPath;
+    _specularBoost.startPoint = _specular.startPoint;
+    _specularBoost.endPoint = _specular.endPoint;
 
-    self.innerShadow.fillColor =
-        [UIColor clearColor].CGColor;
+    [CATransaction commit];
+}
 
-    self.innerShadow.strokeColor =
-        [UIColor colorWithWhite:0.0 alpha:0.10].CGColor;
+- (void)applyNativeBlurFallback {
+    Class backdropClass = SGBackdropClass();
 
-    self.innerShadow.lineWidth = 0.65;
+    if (!backdropClass)
+        return;
 
-    [self.layer addSublayer:self.innerShadow];
+    id blur = SGFilterWithName(@"gaussianBlur");
 
+    if (!blur)
+        return;
 
-    /*
-     * ============================================================
-     * SOMBRA EXTERNA MUITO SUAVE
-     * ============================================================
-     */
+    SGSetValue(blur, @2.0, @"inputRadius");
+    SGSetValue(blur, @YES, @"inputNormalizeEdges");
 
-    self.layer.shadowColor =
-        [UIColor blackColor].CGColor;
+    if (!_nativeBlurLayer) {
+        _nativeBlurLayer = [backdropClass layer];
 
-    self.layer.shadowOpacity = 0.08;
-    self.layer.shadowRadius = 8.0;
-    self.layer.shadowOffset = CGSizeMake(0, 3);
+        SGSetValue(_nativeBlurLayer,
+                   @NO,
+                   @"layerUsesCoreImageFilters");
+
+        SGSetValue(_nativeBlurLayer,
+                   @YES,
+                   @"windowServerAware");
+
+        SGSetValue(_nativeBlurLayer,
+                   kSGGroupName,
+                   @"groupName");
+
+        SGSetValue(_nativeBlurLayer,
+                   kSGGroupNamespace,
+                   @"groupNamespace");
+
+        SGSetValue(_nativeBlurLayer,
+                   @YES,
+                   @"ignoresScreenClip");
+
+        SGSetValue(_nativeBlurLayer,
+                   @1.0,
+                   @"scale");
+
+        [self.layer insertSublayer:_nativeBlurLayer atIndex:0];
+    }
+
+    _nativeBlurLayer.frame = self.bounds;
+    _nativeBlurLayer.cornerRadius = self.cornerRadius;
+    _nativeBlurLayer.masksToBounds = YES;
+    _nativeBlurLayer.filters = @[blur];
+}
+
+- (void)applyLiquidGlass {
+    Class backdropClass = SGBackdropClass();
+    CALayer *layer = self.layer;
+
+    if (!backdropClass ||
+        ![layer isKindOfClass:backdropClass]) {
+
+        [self layoutSpecular];
+        return;
+    }
+
+    @try {
+        /*
+         * These are the same private render-server properties
+         * configured by LGLiveBackdropView in Liquid (Gl)ass.
+         */
+
+        SGSetValue(layer,
+                   @NO,
+                   @"layerUsesCoreImageFilters");
+
+        SGSetValue(layer,
+                   @YES,
+                   @"windowServerAware");
+
+        SGSetValue(layer,
+                   kSGGroupName,
+                   @"groupName");
+
+        SGSetValue(layer,
+                   kSGGroupNamespace,
+                   @"groupNamespace");
+
+        SGSetValue(layer,
+                   @YES,
+                   @"ignoresScreenClip");
+
+        /*
+         * SearchPill in LGHostRegistry:
+         *
+         * refraction       = 1.6
+         * refractiveIndex  = 1.70
+         * blur             = 1.0
+         * specular         = 1.0
+         *
+         * The actual Liquid (Gl)ass filter consumes these parameters
+         * through its registered filter type.
+         */
+
+        SGSetValue(layer, @1.0, @"scale");
+
+        NSString *filterType =
+            SGEffectiveFilterType(self);
+
+        id glassFilter =
+            SGFilterWithType(filterType);
+
+        /*
+         * Some builds register only the base filter name.
+         * Try it before falling back to gaussian blur.
+         */
+
+        if (!glassFilter &&
+            ![filterType isEqualToString:kSGFilterType]) {
+
+            glassFilter =
+                SGFilterWithType(kSGFilterType);
+        }
+
+        if (glassFilter) {
+            layer.filters = @[glassFilter];
+            self.liquidFilterAvailable = YES;
+
+            if (_nativeBlurLayer) {
+                [_nativeBlurLayer removeFromSuperlayer];
+                _nativeBlurLayer = nil;
+            }
+        } else {
+            self.liquidFilterAvailable = NO;
+            [self applyNativeBlurFallback];
+        }
+
+    } @catch (__unused NSException *exception) {
+        self.liquidFilterAvailable = NO;
+        [self applyNativeBlurFallback];
+    }
+
+    [self layoutSpecular];
+}
+
+- (void)setCornerRadius:(CGFloat)cornerRadius {
+    _cornerRadius = cornerRadius;
+
+    self.layer.cornerRadius = cornerRadius;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+    self.layer.masksToBounds = YES;
+
+    [self layoutSpecular];
+    [self applyLiquidGlass];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+
+    if (@available(iOS 13.0, *)) {
+        if (previousTraitCollection.userInterfaceStyle !=
+            self.traitCollection.userInterfaceStyle) {
+
+            [self applyLiquidGlass];
+        }
+    }
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
 
-    self.highlightGradient.frame = self.bounds;
-    self.borderGradient.frame = self.bounds;
+    self.layer.cornerRadius = self.cornerRadius;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+    self.layer.masksToBounds = YES;
 
-    self.innerHighlight.frame = self.bounds;
-    self.innerShadow.frame = self.bounds;
+    [self layoutSpecular];
+
+    if (!self.liquidFilterAvailable)
+        [self applyNativeBlurFallback];
 }
 
 @end
 
-
-#pragma mark - Search Button
+#pragma mark - Search button
 
 @interface SGSearchButton : UIControl
-
-@property(nonatomic, strong) SGGlassView *glassView;
+@property(nonatomic, strong) SGLiveGlassView *glassView;
 @property(nonatomic, strong) UIImageView *searchIcon;
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UIImageView *micIcon;
-
 @end
 
 @implementation SGSearchButton
@@ -252,44 +396,52 @@
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
 
-    if (self) {
-        self.backgroundColor = UIColor.clearColor;
+    if (!self)
+        return nil;
 
-        [self buildUI];
+    self.backgroundColor = UIColor.clearColor;
+    self.opaque = NO;
+    self.exclusiveTouch = YES;
+    self.userInteractionEnabled = YES;
 
-        [self addTarget:self
-                 action:@selector(searchPressed:)
-       forControlEvents:UIControlEventTouchUpInside];
-    }
+    [self buildUI];
+
+    [self addTarget:self
+             action:@selector(searchPressed:)
+   forControlEvents:UIControlEventTouchUpInside];
+
+    [self addTarget:self
+             action:@selector(sgTouchDown:)
+   forControlEvents:UIControlEventTouchDown |
+                    UIControlEventTouchDragEnter];
+
+    [self addTarget:self
+             action:@selector(sgTouchUp:)
+   forControlEvents:UIControlEventTouchUpInside |
+                    UIControlEventTouchCancel |
+                    UIControlEventTouchDragExit];
 
     return self;
 }
 
 - (void)buildUI {
+    self.glassView =
+        [[SGLiveGlassView alloc] initWithFrame:self.bounds];
 
     /*
-     * ============================================================
-     * GLASS
-     * ============================================================
+     * IMPORTANT:
+     * The glass is visual only. It cannot steal touches from
+     * the SGSearchButton underneath it.
      */
-
-    self.glassView =
-        [[SGGlassView alloc] initWithFrame:self.bounds];
-
     self.glassView.userInteractionEnabled = NO;
+    self.glassView.cornerRadius = 14.0;
 
     [self addSubview:self.glassView];
 
-
-    /*
-     * ============================================================
-     * LUPA
-     * ============================================================
-     */
-
     UIImageSymbolConfiguration *searchConfig =
-        [UIImageSymbolConfiguration configurationWithPointSize:18.0
-                                                        weight:UIImageSymbolWeightRegular];
+        [UIImageSymbolConfiguration
+            configurationWithPointSize:15.0
+            weight:UIImageSymbolWeightRegular];
 
     UIImage *searchImage =
         [UIImage systemImageNamed:@"magnifyingglass"
@@ -299,39 +451,26 @@
         [[UIImageView alloc] initWithImage:searchImage];
 
     self.searchIcon.tintColor =
-        [UIColor colorWithWhite:0.04 alpha:0.95];
+        [UIColor colorWithWhite:0.08 alpha:0.92];
 
     self.searchIcon.contentMode =
         UIViewContentModeScaleAspectFit;
-
-    self.searchIcon.frame =
-        CGRectMake(14.0, 11.0, 22.0, 22.0);
 
     self.searchIcon.userInteractionEnabled = NO;
 
     [self addSubview:self.searchIcon];
 
-
-    /*
-     * ============================================================
-     * SEARCH
-     * ============================================================
-     */
-
     self.titleLabel =
-        [[UILabel alloc] initWithFrame:CGRectMake(48.0,
-                                                   0.0,
-                                                   190.0,
-                                                   44.0)];
+        [[UILabel alloc] initWithFrame:CGRectZero];
 
     self.titleLabel.text = @"Search";
 
     self.titleLabel.font =
-        [UIFont systemFontOfSize:18.0
+        [UIFont systemFontOfSize:15.0
                           weight:UIFontWeightRegular];
 
     self.titleLabel.textColor =
-        [UIColor colorWithWhite:0.25 alpha:0.90];
+        [UIColor colorWithWhite:0.20 alpha:0.88];
 
     self.titleLabel.textAlignment =
         NSTextAlignmentLeft;
@@ -343,16 +482,10 @@
 
     [self addSubview:self.titleLabel];
 
-
-    /*
-     * ============================================================
-     * MICROFONE
-     * ============================================================
-     */
-
     UIImageSymbolConfiguration *micConfig =
-        [UIImageSymbolConfiguration configurationWithPointSize:18.0
-                                                        weight:UIImageSymbolWeightRegular];
+        [UIImageSymbolConfiguration
+            configurationWithPointSize:15.0
+            weight:UIImageSymbolWeightRegular];
 
     UIImage *micImage =
         [UIImage systemImageNamed:@"mic"
@@ -362,19 +495,10 @@
         [[UIImageView alloc] initWithImage:micImage];
 
     self.micIcon.tintColor =
-        [UIColor colorWithWhite:0.04 alpha:0.95];
+        [UIColor colorWithWhite:0.08 alpha:0.92];
 
     self.micIcon.contentMode =
         UIViewContentModeScaleAspectFit;
-
-    self.micIcon.frame =
-        CGRectMake(self.bounds.size.width - 38.0,
-                   11.0,
-                   22.0,
-                   22.0);
-
-    self.micIcon.autoresizingMask =
-        UIViewAutoresizingFlexibleLeftMargin;
 
     self.micIcon.userInteractionEnabled = NO;
 
@@ -384,72 +508,83 @@
 - (void)layoutSubviews {
     [super layoutSubviews];
 
+    CGFloat width =
+        CGRectGetWidth(self.bounds);
+
+    CGFloat height =
+        CGRectGetHeight(self.bounds);
+
     self.glassView.frame = self.bounds;
+    self.glassView.cornerRadius =
+        MIN(14.0, height * 0.5);
 
     self.searchIcon.frame =
-        CGRectMake(14.0,
-                   11.0,
-                   22.0,
-                   22.0);
-
-    self.titleLabel.frame =
-        CGRectMake(48.0,
-                   0.0,
-                   self.bounds.size.width - 96.0,
-                   self.bounds.size.height);
+        CGRectMake(11.0,
+                   floor((height - 18.0) * 0.5),
+                   18.0,
+                   18.0);
 
     self.micIcon.frame =
-        CGRectMake(self.bounds.size.width - 38.0,
-                   11.0,
-                   22.0,
-                   22.0);
+        CGRectMake(width - 29.0,
+                   floor((height - 18.0) * 0.5),
+                   18.0,
+                   18.0);
+
+    self.titleLabel.frame =
+        CGRectMake(37.0,
+                   0.0,
+                   MAX(0.0, width - 72.0),
+                   height);
 }
 
+- (void)sgTouchDown:(id)sender {
+    [UIView animateWithDuration:0.08
+                     animations:^{
+        self.transform =
+            CGAffineTransformMakeScale(0.985, 0.985);
 
-#pragma mark - Search Action
+        self.alpha = 0.88;
+    }];
+}
+
+- (void)sgTouchUp:(id)sender {
+    [UIView animateWithDuration:0.12
+                     animations:^{
+        self.transform =
+            CGAffineTransformIdentity;
+
+        self.alpha = 1.0;
+    }];
+}
+
+#pragma mark - Search action
 
 - (void)searchPressed:(id)sender {
-
-    /*
-     * Primeiro encontra o UIViewController da tela atual.
-     */
-
-    UIViewController *vc = [self nearestViewController];
+    UIViewController *vc =
+        [self nearestViewController];
 
     if (!vc)
         return;
 
-
-    /*
-     * Se estivermos dentro de uma navegação dos Ajustes,
-     * voltamos para a página principal.
-     */
-
     UINavigationController *navigationController =
         vc.navigationController;
 
-    if (navigationController) {
+    if (navigationController &&
+        navigationController.viewControllers.count > 1) {
 
         [navigationController
             popToRootViewControllerAnimated:YES];
     }
-
-
-    /*
-     * Espera a transição terminar antes de procurar
-     * a UISearchBar nativa dos Ajustes.
-     */
 
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW,
                       (int64_t)(0.30 * NSEC_PER_SEC)),
         dispatch_get_main_queue(),
         ^{
-
             UIViewController *root =
-                navigationController ?
-                navigationController.viewControllers.firstObject :
-                vc;
+                navigationController
+                ? navigationController.viewControllers.firstObject
+                : vc;
 
             if (!root)
                 return;
@@ -457,21 +592,11 @@
             UISearchBar *searchBar =
                 [self findSearchBarInView:root.view];
 
-            /*
-             * Se encontrou a pesquisa nativa:
-             *
-             * 1. tenta tornar visível
-             * 2. coloca foco
-             * 3. abre teclado
-             */
-
             if (searchBar) {
-
                 UIScrollView *scroll =
                     [self findScrollViewContainingView:searchBar];
 
                 if (scroll) {
-
                     CGRect rect =
                         [searchBar convertRect:searchBar.bounds
                                         toView:scroll];
@@ -482,48 +607,33 @@
                 }
 
                 [searchBar becomeFirstResponder];
-
                 return;
             }
-
-
-            /*
-             * Segunda tentativa:
-             * procura novamente depois de um pequeno intervalo,
-             * pois o Settings.app pode ainda estar montando
-             * a interface.
-             */
 
             dispatch_after(
                 dispatch_time(DISPATCH_TIME_NOW,
                               (int64_t)(0.25 * NSEC_PER_SEC)),
                 dispatch_get_main_queue(),
                 ^{
-
                     UISearchBar *retry =
                         [self findSearchBarInView:root.view];
 
-                    if (retry) {
+                    if (retry)
                         [retry becomeFirstResponder];
-                    }
                 });
         });
 }
 
-
-#pragma mark - View Controller Finder
+#pragma mark - View controller finder
 
 - (UIViewController *)nearestViewController {
-
     UIResponder *responder = self;
 
     while (responder) {
+        responder = [responder nextResponder];
 
-        responder =
-            [responder nextResponder];
-
-        if ([responder isKindOfClass:
-             [UIViewController class]]) {
+        if ([responder
+             isKindOfClass:[UIViewController class]]) {
 
             return (UIViewController *)responder;
         }
@@ -532,23 +642,16 @@
     return nil;
 }
 
-
-#pragma mark - SearchBar Finder
+#pragma mark - SearchBar finder
 
 - (UISearchBar *)findSearchBarInView:(UIView *)view {
-
     if (!view)
         return nil;
 
-    if ([view isKindOfClass:
-         [UISearchBar class]]) {
-
+    if ([view isKindOfClass:[UISearchBar class]])
         return (UISearchBar *)view;
-    }
-
 
     for (UIView *subview in view.subviews) {
-
         UISearchBar *result =
             [self findSearchBarInView:subview];
 
@@ -559,20 +662,14 @@
     return nil;
 }
 
-
-#pragma mark - ScrollView Finder
+#pragma mark - ScrollView finder
 
 - (UIScrollView *)findScrollViewContainingView:(UIView *)target {
-
     UIView *view = target.superview;
 
     while (view) {
-
-        if ([view isKindOfClass:
-             [UIScrollView class]]) {
-
+        if ([view isKindOfClass:[UIScrollView class]])
             return (UIScrollView *)view;
-        }
 
         view = view.superview;
     }
@@ -580,63 +677,29 @@
     return nil;
 }
 
-
-#pragma mark - Touch Feedback
-
-- (void)setHighlighted:(BOOL)highlighted {
-
-    [UIView animateWithDuration:0.10
-                     animations:^{
-
-        self.transform =
-            highlighted ?
-            CGAffineTransformMakeScale(0.985, 0.985) :
-            CGAffineTransformIdentity;
-
-        self.alpha =
-            highlighted ? 0.86 : 1.0;
-    }];
-}
-
 @end
 
+#pragma mark - Settings installation
 
-#pragma mark - Settings Hook
+static const NSInteger kSGSearchGlassTag = 0x53474153;
 
-@interface PSListController : UIViewController
-@end
+static BOOL SGIsMainSettingsController(
+    UIViewController *controller
+) {
+    if (!controller)
+        return NO;
 
+    Class psClass =
+        NSClassFromString(@"PSListController");
 
-%hook PSListController
+    if (!psClass ||
+        ![controller isKindOfClass:psClass]) {
 
-- (void)viewDidAppear:(BOOL)animated {
-
-    %orig;
-
-    /*
-     * Só adiciona o botão na tela principal dos Ajustes.
-     */
-
-    if (![self isMainSettingsController])
-        return;
-
-    [self installSearchGlassIfNeeded];
-}
-
-%new
-- (BOOL)isMainSettingsController {
-
-    /*
-     * Evita adicionar o botão em subpáginas.
-     */
+        return NO;
+    }
 
     NSString *className =
-        NSStringFromClass([self class]);
-
-    /*
-     * O nome exato pode variar entre versões do iOS.
-     * PSListController é comum nas páginas de preferências.
-     */
+        NSStringFromClass(controller.class);
 
     if ([className containsString:@"Search"])
         return NO;
@@ -644,59 +707,46 @@
     return YES;
 }
 
-%new
-- (void)installSearchGlassIfNeeded {
+static void SGInstallSearchGlass(
+    UIViewController *controller
+) {
+    if (!controller.view ||
+        !SGIsMainSettingsController(controller)) {
 
-    UIView *view = self.view;
-
-    if (!view)
         return;
+    }
 
+    UIView *view = controller.view;
 
-    /*
-     * Evita duplicação.
-     */
+    SGSearchButton *existing =
+        (SGSearchButton *)[view viewWithTag:kSGSearchGlassTag];
 
-    if ([view viewWithTag:0x53474153])
+    if (existing) {
+        [view bringSubviewToFront:existing];
         return;
-
-
-    /*
-     * ============================================================
-     * TAMANHO DO BOTÃO
-     * ============================================================
-     *
-     * Baseado no SVG:
-     *
-     * 316 × 44
-     */
-
-    CGFloat width = 316.0;
-    CGFloat height = 44.0;
-
+    }
 
     /*
-     * Centralizado horizontalmente.
+     * Smaller than the old 316 x 44 version.
      */
+    CGFloat width =
+        MIN(316.0,
+            MAX(260.0,
+                CGRectGetWidth(view.bounds) - 32.0));
+
+    CGFloat height = 40.0;
 
     CGFloat x =
-        (view.bounds.size.width - width) / 2.0;
-
-
-    /*
-     * Fica próximo à parte inferior da tela,
-     * respeitando Safe Area.
-     */
-
-    CGFloat bottomInset =
-        view.safeAreaInsets.bottom;
+        (CGRectGetWidth(view.bounds) - width) * 0.5;
 
     CGFloat y =
-        view.bounds.size.height -
-        bottomInset -
+        CGRectGetHeight(view.bounds) -
+        view.safeAreaInsets.bottom -
         height -
         18.0;
 
+    if (y < 20.0)
+        y = 20.0;
 
     SGSearchButton *button =
         [[SGSearchButton alloc]
@@ -705,59 +755,41 @@
                                      width,
                                      height)];
 
-    button.tag = 0x53474153;
-
-
-    /*
-     * Auto Layout não é necessário aqui.
-     */
+    button.tag = kSGSearchGlassTag;
 
     button.autoresizingMask =
         UIViewAutoresizingFlexibleLeftMargin |
         UIViewAutoresizingFlexibleRightMargin |
         UIViewAutoresizingFlexibleTopMargin;
 
-
-    /*
-     * Mantém acima da interface dos Ajustes.
-     */
-
     [view addSubview:button];
-
     [view bringSubviewToFront:button];
+}
 
+#pragma mark - Logos hooks
 
-    /*
-     * Reposiciona caso a tela seja redimensionada.
-     */
+@interface PSListController : UIViewController
+@end
 
-    __weak SGSearchButton *weakButton = button;
+%hook PSListController
 
-    /*
-     * Não utilizamos block de layout permanente.
-     * O autoresizing resolve rotação/redimensionamento.
-     */
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
 
-    (void)weakButton;
+    if (!SGIsMainSettingsController(self))
+        return;
+
+    SGInstallSearchGlass(self);
 }
 
 %end
 
-
-#pragma mark - Additional UIViewController Protection
-
 %hook UINavigationController
 
 - (void)viewDidLayoutSubviews {
-
     %orig;
 
-    /*
-     * Procura o botão caso a navegação do Settings
-     * tenha reconstruído a view.
-     */
-
-    if (![self.view.window isKeyWindow])
+    if (!self.view.window.isKeyWindow)
         return;
 
     NSString *bundleID =
@@ -766,66 +798,27 @@
     if (![bundleID isEqualToString:@"com.apple.Preferences"])
         return;
 
-    for (UIViewController *controller
-         in self.viewControllers) {
+    UIViewController *top =
+        self.topViewController;
 
-        if (![controller isKindOfClass:
-              NSClassFromString(@"PSListController")]) {
-
-            continue;
-        }
-
-        UIView *view = controller.view;
-
-        if (!view)
-            continue;
-
-        UIView *existing =
-            [view viewWithTag:0x53474153];
-
-        if (existing)
-            continue;
-
-        /*
-         * Só adiciona quando estiver na tela visível.
-         */
-
-        if (controller == self.topViewController) {
-
-            SGSearchButton *button =
-                [[SGSearchButton alloc]
-                    initWithFrame:CGRectZero];
-
-            CGFloat width = 316.0;
-            CGFloat height = 44.0;
-
-            CGFloat x =
-                (view.bounds.size.width - width) / 2.0;
-
-            CGFloat y =
-                view.bounds.size.height -
-                view.safeAreaInsets.bottom -
-                height -
-                18.0;
-
-            button.frame =
-                CGRectMake(x,
-                           y,
-                           width,
-                           height);
-
-            button.tag = 0x53474153;
-
-            button.autoresizingMask =
-                UIViewAutoresizingFlexibleLeftMargin |
-                UIViewAutoresizingFlexibleRightMargin |
-                UIViewAutoresizingFlexibleTopMargin;
-
-            [view addSubview:button];
-
-            [view bringSubviewToFront:button];
-        }
-    }
+    if (SGIsMainSettingsController(top))
+        SGInstallSearchGlass(top);
 }
 
 %end
+
+%ctor {
+    @autoreleasepool {
+        /*
+         * No private class is linked at build time.
+         * CABackdropLayer and CAFilter are resolved dynamically.
+         *
+         * If Liquid (Gl)ass has registered the
+         * dylv.liquidglass.searchpill filter, the button uses
+         * the live Liquid Glass refraction engine.
+         *
+         * If the filter is unavailable, the code falls back to
+         * a live CABackdropLayer gaussian blur rather than crashing.
+         */
+    }
+}
