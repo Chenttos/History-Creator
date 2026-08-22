@@ -254,6 +254,33 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     _nativeBlurLayer.filters = @[blur];
 }
 
+- (void)configureRefractionFilter:(id)glassFilter {
+    if (!glassFilter)
+        return;
+
+    /*
+     * Stronger Liquid Glass refraction.
+     * These are intentionally applied only to the Liquid Glass
+     * filter, leaving the existing blur/specular design unchanged.
+     */
+    SGSetValue(glassFilter, @2.35, @"inputRefraction");
+    SGSetValue(glassFilter, @1.85, @"inputRefractiveIndex");
+    SGSetValue(glassFilter, @1.35, @"inputDisplacement");
+    SGSetValue(glassFilter, @1.20, @"inputScale");
+    SGSetValue(glassFilter, @1.0, @"inputBlur");
+    SGSetValue(glassFilter, @1.0, @"inputSpecular");
+
+    /*
+     * Liquid (Gl)ass SearchPill builds use these shorter keys.
+     * Setting both forms is harmless because SGSetValue safely
+     * ignores keys that are not exposed by the current filter.
+     */
+    SGSetValue(glassFilter, @2.35, @"refraction");
+    SGSetValue(glassFilter, @1.85, @"refractiveIndex");
+    SGSetValue(glassFilter, @1.0, @"blur");
+    SGSetValue(glassFilter, @1.0, @"specular");
+}
+
 - (void)applyLiquidGlass {
     Class backdropClass = SGBackdropClass();
     CALayer *layer = self.layer;
@@ -324,6 +351,8 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         }
 
         if (glassFilter) {
+            [self configureRefractionFilter:glassFilter];
+
             layer.filters = @[glassFilter];
             self.liquidFilterAvailable = YES;
 
@@ -487,8 +516,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         [UIFont systemFontOfSize:15.0
                           weight:UIFontWeightRegular];
 
-    self.titleLabel.textColor =
-        [UIColor colorWithWhite:0.20 alpha:0.88];
+    self.titleLabel.textColor = UIColor.labelColor;
 
     self.titleLabel.textAlignment =
         NSTextAlignmentLeft;
@@ -521,6 +549,33 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.micIcon.userInteractionEnabled = NO;
 
     [self addSubview:self.micIcon];
+
+    [self updateTextAppearance];
+}
+
+- (void)updateTextAppearance {
+    BOOL dark = NO;
+
+    if (@available(iOS 13.0, *)) {
+        dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
+    }
+
+    self.titleLabel.textColor =
+        dark
+        ? [UIColor colorWithWhite:1.0 alpha:0.96]
+        : [UIColor colorWithWhite:0.0 alpha:0.92];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+
+    if (@available(iOS 13.0, *)) {
+        if (!previousTraitCollection ||
+            previousTraitCollection.userInterfaceStyle !=
+            self.traitCollection.userInterfaceStyle) {
+            [self updateTextAppearance];
+        }
+    }
 }
 
 - (void)layoutSubviews {
@@ -712,9 +767,26 @@ static BOOL SGIsMainSettingsController(
 
     if (!psClass ||
         ![controller isKindOfClass:psClass]) {
-
         return NO;
     }
+
+    /*
+     * Only the root Settings page is allowed.
+     * A pushed PSListController has more than one controller
+     * in the navigation stack, so the SearchGlass disappears
+     * automatically on every subpage.
+     */
+    UINavigationController *navigationController =
+        controller.navigationController;
+
+    if (!navigationController)
+        return NO;
+
+    if (navigationController.viewControllers.count != 1)
+        return NO;
+
+    if (navigationController.viewControllers.firstObject != controller)
+        return NO;
 
     NSString *className =
         NSStringFromClass(controller.class);
