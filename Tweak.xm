@@ -263,22 +263,26 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * These are intentionally applied only to the Liquid Glass
      * filter, leaving the existing blur/specular design unchanged.
      */
-    SGSetValue(glassFilter, @6.99, @"inputRefraction");
-    SGSetValue(glassFilter, @3.85, @"inputRefractiveIndex");
-    SGSetValue(glassFilter, @1.35, @"inputDisplacement");
+    SGSetValue(glassFilter, @6.0, @"inputRefraction");
+        SGSetValue(glassFilter, @4.0, @"inputDisplacement");
+        SGSetValue(glassFilter, @4.0, @"inputDisplacementRadius");
+        SGSetValue(glassFilter, @3.0, @"inputDistortion");
+        SGSetValue(glassFilter, @2.0, @"inputDistortionScale");
+    SGSetValue(glassFilter, @2.15, @"inputRefractiveIndex");
+    SGSetValue(glassFilter, @4.0, @"inputDisplacement");
     SGSetValue(glassFilter, @1.20, @"inputScale");
-    SGSetValue(glassFilter, @1.0, @"inputBlur");
-    SGSetValue(glassFilter, @2.0, @"inputSpecular");
+    SGSetValue(glassFilter, @1.45, @"inputBlur");
+    SGSetValue(glassFilter, @1.15, @"inputSpecular");
 
     /*
      * Liquid (Gl)ass SearchPill builds use these shorter keys.
      * Setting both forms is harmless because SGSetValue safely
      * ignores keys that are not exposed by the current filter.
      */
-    SGSetValue(glassFilter, @6.99, @"refraction");
-    SGSetValue(glassFilter, @3.85, @"refractiveIndex");
-    SGSetValue(glassFilter, @1.0, @"blur");
-    SGSetValue(glassFilter, @2.0, @"specular");
+    SGSetValue(glassFilter, @6.0, @"refraction");
+    SGSetValue(glassFilter, @2.15, @"refractiveIndex");
+    SGSetValue(glassFilter, @1.45, @"blur");
+    SGSetValue(glassFilter, @1.15, @"specular");
 }
 
 - (void)applyLiquidGlass {
@@ -418,7 +422,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @property(nonatomic, strong) UIImageView *searchIcon;
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UIImageView *micIcon;
-@property(nonatomic, strong) UIView *borderOverlay;
+
 @end
 
 @implementation SGSearchButton
@@ -554,14 +558,14 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     [self addSubview:self.micIcon];
 
     // Dedicated topmost outline so the thin border stays visible over the glass.
-    self.borderOverlay = [[UIView alloc] initWithFrame:self.bounds];
+
     self.borderOverlay.backgroundColor = UIColor.clearColor;
     self.borderOverlay.userInteractionEnabled = NO;
     self.borderOverlay.autoresizingMask =
         UIViewAutoresizingFlexibleWidth |
         UIViewAutoresizingFlexibleHeight;
-    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
-    self.borderOverlay.layer.borderWidth = 0.3;
+
+
     [self addSubview:self.borderOverlay];
 
     [self updateTextAppearance];
@@ -585,8 +589,8 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.micIcon.tintColor = foreground;
 
     // Thin 0.8pt outline: white in Dark Mode, black in Light Mode.
-    self.borderOverlay.layer.borderColor = foreground.CGColor;
-    self.borderOverlay.layer.borderWidth = 0.8;
+
+
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
@@ -618,8 +622,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.layer.cornerCurve = kCACornerCurveContinuous;
 
     self.borderOverlay.frame = self.bounds;
-    self.borderOverlay.layer.cornerRadius = self.glassView.cornerRadius;
-    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
+
 
     self.searchIcon.frame =
         CGRectMake(11.0,
