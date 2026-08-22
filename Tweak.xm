@@ -89,6 +89,50 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     return backdrop ?: [CALayer class];
 }
 
+
+- (void)updateTextAppearance
+{
+    BOOL dark = NO;
+
+    if (@available(iOS 13.0, *)) {
+        dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
+    }
+
+    UIColor *textColor = dark
+        ? [UIColor whiteColor]
+        : [UIColor blackColor];
+
+    // Force all text belonging to the button to follow the current mode.
+    if (self.titleLabel) {
+        self.titleLabel.textColor = textColor;
+    }
+
+    for (UIView *subview in self.subviews) {
+        if ([subview isKindOfClass:[UILabel class]]) {
+            ((UILabel *)subview).textColor = textColor;
+        }
+    }
+
+    if (self.searchIcon) {
+        self.searchIcon.tintColor = textColor;
+    }
+
+    if (self.micIcon) {
+        self.micIcon.tintColor = textColor;
+    }
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
+{
+    [super traitCollectionDidChange:previousTraitCollection];
+
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            [self updateTextAppearance];
+        }
+    }
+}
+
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
 
@@ -391,6 +435,11 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @property(nonatomic, strong) UIImageView *micIcon;
 @end
 
+
+@interface SGSearchButton ()
+- (void)updateTextAppearance;
+@end
+
 @implementation SGSearchButton
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -452,7 +501,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * the SGSearchButton underneath it.
      */
     self.glassView.userInteractionEnabled = NO;
-    self.glassView.cornerRadius = 14.0;
+    self.glassView.cornerRadius = 22.0;
 
     [self addSubview:self.glassView];
 
@@ -534,7 +583,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     self.glassView.frame = self.bounds;
     self.glassView.cornerRadius =
-        MIN(14.0, height * 0.5);
+        MIN(22.0, height * 0.5);
 
     self.searchIcon.frame =
         CGRectMake(11.0,
