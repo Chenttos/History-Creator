@@ -1,21 +1,12 @@
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
 
 /*
  * SearchGlass
  * iOS 16 / Rootless
  *
- * Barra:
- *
- * ┌──────────────────────────────────────────────┐
- * │  🔍  Search                              🎙  │
- * └──────────────────────────────────────────────┘
- *
- * Toque na barra:
- * -> abre a pesquisa nativa do Ajustes.
+ * Barra de pesquisa estilo glass na parte inferior
+ * do aplicativo Ajustes.
  */
-
-#pragma mark - Configuração
 
 static NSString * const SGSPreferencesID =
     @"com.samuel.settingsglasssearch";
@@ -28,7 +19,7 @@ static CGFloat sgsBlur = 18.0;
 static CGFloat sgsRadius = 28.0;
 
 
-#pragma mark - Preferências
+#pragma mark - Preferences
 
 static void SGSLoadPreferences(void) {
 
@@ -50,96 +41,13 @@ static void SGSLoadPreferences(void) {
             sgsRadius = [defaults doubleForKey:@"radius"];
     }
 
-    if (sgsOpacity < 0.1)
-        sgsOpacity = 0.1;
-
-    if (sgsOpacity > 1.0)
-        sgsOpacity = 1.0;
-
-    if (sgsBlur < 1.0)
-        sgsBlur = 1.0;
-
-    if (sgsBlur > 50.0)
-        sgsBlur = 50.0;
-
-    if (sgsRadius < 8.0)
-        sgsRadius = 8.0;
-
-    if (sgsRadius > 50.0)
-        sgsRadius = 50.0;
+    sgsOpacity = MIN(MAX(sgsOpacity, 0.1), 1.0);
+    sgsBlur = MIN(MAX(sgsBlur, 1.0), 50.0);
+    sgsRadius = MIN(MAX(sgsRadius, 8.0), 50.0);
 }
 
 
-#pragma mark - View Controller
-
-static UIViewController *
-SGSVisibleViewController(UIViewController *controller) {
-
-    if (!controller)
-        return nil;
-
-    if (controller.presentedViewController) {
-
-        return SGSVisibleViewController(
-            controller.presentedViewController
-        );
-    }
-
-    if ([controller isKindOfClass:
-         [UINavigationController class]]) {
-
-        UINavigationController *navigation =
-            (UINavigationController *)controller;
-
-        return SGSVisibleViewController(
-            navigation.visibleViewController
-        );
-    }
-
-    if ([controller isKindOfClass:
-         [UITabBarController class]]) {
-
-        UITabBarController *tab =
-            (UITabBarController *)controller;
-
-        return SGSVisibleViewController(
-            tab.selectedViewController
-        );
-    }
-
-    if ([controller isKindOfClass:
-         [UISplitViewController class]]) {
-
-        UISplitViewController *split =
-            (UISplitViewController *)controller;
-
-        UIViewController *last =
-            split.viewControllers.lastObject;
-
-        if (last) {
-
-            return SGSVisibleViewController(last);
-        }
-    }
-
-    for (UIViewController *child
-         in controller.childViewControllers) {
-
-        if (child.viewIfLoaded.window) {
-
-            UIViewController *result =
-                SGSVisibleViewController(child);
-
-            if (result)
-                return result;
-        }
-    }
-
-    return controller;
-}
-
-
-#pragma mark - Window
+#pragma mark - Settings Window
 
 static UIWindow *SGSGetSettingsWindow(void) {
 
@@ -148,31 +56,23 @@ static UIWindow *SGSGetSettingsWindow(void) {
 
     UIWindow *result = nil;
 
-    for (UIScene *scene
-         in application.connectedScenes) {
+    for (UIScene *scene in application.connectedScenes) {
 
-        if (![scene isKindOfClass:
-             [UIWindowScene class]]) {
-
+        if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
-        }
 
         UIWindowScene *windowScene =
             (UIWindowScene *)scene;
 
         if (windowScene.activationState !=
-            UISceneActivationStateForegroundActive) {
-
+            UISceneActivationStateForegroundActive)
             continue;
-        }
 
-        for (UIWindow *window
-             in windowScene.windows) {
+        for (UIWindow *window in windowScene.windows) {
 
             if (!window.hidden &&
                 window.rootViewController &&
-                window.windowLevel ==
-                UIWindowLevelNormal) {
+                window.windowLevel == UIWindowLevelNormal) {
 
                 result = window;
 
@@ -186,22 +86,17 @@ static UIWindow *SGSGetSettingsWindow(void) {
 }
 
 
-#pragma mark - Procurar UISearchBar
+#pragma mark - Find Search Bar
 
-static UISearchBar *
-SGSFindSearchBarInView(UIView *view) {
+static UISearchBar *SGSFindSearchBarInView(UIView *view) {
 
     if (!view)
         return nil;
 
-    if ([view isKindOfClass:
-         [UISearchBar class]]) {
-
+    if ([view isKindOfClass:[UISearchBar class]])
         return (UISearchBar *)view;
-    }
 
-    for (UIView *subview
-         in view.subviews) {
+    for (UIView *subview in view.subviews) {
 
         UISearchBar *result =
             SGSFindSearchBarInView(subview);
@@ -214,7 +109,7 @@ SGSFindSearchBarInView(UIView *view) {
 }
 
 
-#pragma mark - Procurar UISearchController
+#pragma mark - Find Search Controller
 
 static UISearchController *
 SGSFindSearchController(UIViewController *controller) {
@@ -222,41 +117,40 @@ SGSFindSearchController(UIViewController *controller) {
     if (!controller)
         return nil;
 
-    /*
-     * Navigation item
-     */
-
-    if (controller.navigationItem.searchController) {
-
+    if (controller.navigationItem.searchController)
         return controller.navigationItem.searchController;
-    }
-
-    /*
-     * Navigation controller
-     */
 
     if ([controller isKindOfClass:
-         [UINavigationController class]]) {
+        [UINavigationController class]]) {
 
         UINavigationController *navigation =
             (UINavigationController *)controller;
 
-        UIViewController *visible =
-            navigation.visibleViewController;
+        UISearchController *result =
+            SGSFindSearchController(
+                navigation.visibleViewController
+            );
 
-        if (visible) {
+        if (result)
+            return result;
+    }
+
+    if ([controller isKindOfClass:
+        [UISplitViewController class]]) {
+
+        UISplitViewController *split =
+            (UISplitViewController *)controller;
+
+        for (UIViewController *child
+             in split.viewControllers) {
 
             UISearchController *result =
-                SGSFindSearchController(visible);
+                SGSFindSearchController(child);
 
             if (result)
                 return result;
         }
     }
-
-    /*
-     * Children
-     */
 
     for (UIViewController *child
          in controller.childViewControllers) {
@@ -272,7 +166,7 @@ SGSFindSearchController(UIViewController *controller) {
 }
 
 
-#pragma mark - Abrir pesquisa
+#pragma mark - Open Native Settings Search
 
 static void SGSOpenNativeSearch(void) {
 
@@ -292,8 +186,8 @@ static void SGSOpenNativeSearch(void) {
             return;
 
         /*
-         * Primeiro procura uma UISearchBar
-         * que já esteja presente.
+         * Primeiro tenta encontrar uma barra
+         * de pesquisa que já esteja na tela.
          */
 
         UISearchBar *searchBar =
@@ -310,7 +204,7 @@ static void SGSOpenNativeSearch(void) {
         }
 
         /*
-         * Procura UISearchController.
+         * Depois procura UISearchController.
          */
 
         UISearchController *searchController =
@@ -327,14 +221,13 @@ static void SGSOpenNativeSearch(void) {
         }
 
         /*
-         * Se não encontrou a pesquisa,
-         * tenta voltar para a raiz do Settings.
+         * Tenta encontrar a NavigationController.
          */
 
         UINavigationController *navigation = nil;
 
         if ([root isKindOfClass:
-             [UINavigationController class]]) {
+            [UINavigationController class]]) {
 
             navigation =
                 (UINavigationController *)root;
@@ -346,7 +239,7 @@ static void SGSOpenNativeSearch(void) {
 
         if (!navigation &&
             [root isKindOfClass:
-             [UISplitViewController class]]) {
+            [UISplitViewController class]]) {
 
             UISplitViewController *split =
                 (UISplitViewController *)root;
@@ -369,15 +262,15 @@ static void SGSOpenNativeSearch(void) {
             return;
 
         /*
-         * Volta para a raiz.
+         * Volta para a raiz do Ajustes.
          */
 
         [navigation
             popToRootViewControllerAnimated:NO];
 
         /*
-         * Dá tempo para o Settings reconstruir
-         * a interface.
+         * Dá tempo para a interface
+         * nativa do Ajustes aparecer.
          */
 
         dispatch_after(
@@ -405,16 +298,14 @@ static void SGSOpenNativeSearch(void) {
                     navigation.view
                 );
 
-            if (bar) {
-
+            if (bar)
                 [bar becomeFirstResponder];
-            }
         });
     });
 }
 
 
-#pragma mark - Controle da barra
+#pragma mark - Search Glass Control
 
 @interface SGSSearchControl : UIControl
 
@@ -441,9 +332,6 @@ CAGradientLayer *reflectionLayer;
 
 @implementation SGSSearchControl
 
-
-#pragma mark Inicialização
-
 - (instancetype)initWithFrame:(CGRect)frame {
 
     self = [super initWithFrame:frame];
@@ -462,7 +350,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * BLUR
+         * Glass blur
          */
 
         UIBlurEffect *blurEffect =
@@ -477,10 +365,6 @@ CAGradientLayer *reflectionLayer;
         self.blurView.translatesAutoresizingMaskIntoConstraints =
             NO;
 
-        /*
-         * Intensidade aproximada do blur.
-         */
-
         self.blurView.alpha =
             MIN(MAX(sgsBlur / 20.0, 0.2), 1.0);
 
@@ -488,7 +372,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * GLASS TINT
+         * Glass tint
          */
 
         self.glassTint =
@@ -506,7 +390,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * LUPA
+         * Search icon
          */
 
         UIImageSymbolConfiguration *searchConfig =
@@ -536,7 +420,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * TEXTO
+         * Search text
          */
 
         self.searchLabel =
@@ -561,13 +445,16 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * MICROFONE
+         * Microphone
+         *
+         * CORREÇÃO:
+         * UIImageSymbolWeightMedium
          */
 
         UIImageSymbolConfiguration *micConfig =
             [UIImageSymbolConfiguration
                 configurationWithPointSize:29.0
-                weight:UIFontSymbolWeightMedium];
+                weight:UIImageSymbolWeightMedium];
 
         UIImage *micImage =
             [UIImage
@@ -591,7 +478,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * CONSTRAINTS
+         * Constraints
          */
 
         [NSLayoutConstraint activateConstraints:@[
@@ -639,7 +526,7 @@ CAGradientLayer *reflectionLayer;
 
 
             /*
-             * LUPA
+             * Search icon
              */
 
             [self.searchIcon.leadingAnchor
@@ -659,7 +546,7 @@ CAGradientLayer *reflectionLayer;
 
 
             /*
-             * TEXTO
+             * Search text
              */
 
             [self.searchLabel.leadingAnchor
@@ -678,7 +565,7 @@ CAGradientLayer *reflectionLayer;
 
 
             /*
-             * MICROFONE
+             * Microphone
              */
 
             [self.micIcon.trailingAnchor
@@ -695,11 +582,12 @@ CAGradientLayer *reflectionLayer;
 
             [self.micIcon.heightAnchor
                 constraintEqualToConstant:34.0]
+
         ]];
 
 
         /*
-         * REFLEXO
+         * Reflection
          */
 
         self.reflectionLayer =
@@ -728,7 +616,7 @@ CAGradientLayer *reflectionLayer;
 
 
         /*
-         * BORDA
+         * Border
          */
 
         self.layer.borderWidth =
@@ -742,8 +630,6 @@ CAGradientLayer *reflectionLayer;
     return self;
 }
 
-
-#pragma mark Layout
 
 - (void)layoutSubviews {
 
@@ -760,7 +646,7 @@ CAGradientLayer *reflectionLayer;
 }
 
 
-#pragma mark Touch - CORRIGIDO PARA IOS 16
+#pragma mark - Touch
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch
                       withEvent:(UIEvent *)event {
@@ -800,10 +686,6 @@ CAGradientLayer *reflectionLayer;
         self.alpha = 1.0;
     }];
 
-    /*
-     * Abre a pesquisa.
-     */
-
     SGSOpenNativeSearch();
 }
 
@@ -825,7 +707,7 @@ CAGradientLayer *reflectionLayer;
 @end
 
 
-#pragma mark - Criar barra
+#pragma mark - Create Search Glass
 
 static void SGSRemoveSearchBar(void) {
 
@@ -845,10 +727,6 @@ static void SGSCreateSearchBar(void) {
     if (!sgsEnabled)
         return;
 
-    /*
-     * Evita duplicação.
-     */
-
     if (sgsContainer &&
         sgsContainer.superview) {
 
@@ -863,7 +741,7 @@ static void SGSCreateSearchBar(void) {
 
 
     /*
-     * Container.
+     * Container
      */
 
     sgsContainer =
@@ -880,7 +758,7 @@ static void SGSCreateSearchBar(void) {
 
 
     /*
-     * Controle de pesquisa.
+     * Search control
      */
 
     SGSSearchControl *searchControl =
@@ -888,7 +766,6 @@ static void SGSCreateSearchBar(void) {
 
     searchControl.translatesAutoresizingMaskIntoConstraints =
         NO;
-
 
     [sgsContainer addSubview:
         searchControl];
@@ -898,11 +775,7 @@ static void SGSCreateSearchBar(void) {
 
 
     /*
-     * POSIÇÃO
-     *
-     * 16 px dos lados
-     * 12 px acima do Safe Area
-     * 56 px de altura
+     * Position
      */
 
     [NSLayoutConstraint activateConstraints:@[
@@ -927,7 +800,7 @@ static void SGSCreateSearchBar(void) {
 
 
         /*
-         * Search Control
+         * Search control
          */
 
         [searchControl.leadingAnchor
@@ -945,6 +818,7 @@ static void SGSCreateSearchBar(void) {
         [searchControl.bottomAnchor
             constraintEqualToAnchor:
             sgsContainer.bottomAnchor]
+
     ]];
 }
 
@@ -960,15 +834,13 @@ static void SGSRefresh(void) {
 
         SGSLoadPreferences();
 
-        if (sgsEnabled) {
-
+        if (sgsEnabled)
             SGSCreateSearchBar();
-        }
     });
 }
 
 
-#pragma mark - UIViewController Hook
+#pragma mark - View Controller Hook
 
 %hook UIViewController
 
@@ -980,12 +852,9 @@ static void SGSRefresh(void) {
         [[NSBundle mainBundle]
             bundleIdentifier];
 
-    /*
-     * Só executa dentro do Ajustes.
-     */
-
     if (![bundleIdentifier
-          isEqualToString:@"com.apple.Preferences"]) {
+          isEqualToString:
+          @"com.apple.Preferences"]) {
 
         return;
     }
@@ -997,15 +866,14 @@ static void SGSRefresh(void) {
         ),
         dispatch_get_main_queue(), ^{
 
-            SGSCreateSearchBar();
-        }
-    );
+        SGSCreateSearchBar();
+    });
 }
 
 %end
 
 
-#pragma mark - UIApplication Hook
+#pragma mark - Application Hook
 
 %hook UIApplication
 
@@ -1019,7 +887,8 @@ static void SGSRefresh(void) {
             bundleIdentifier];
 
     if (![bundleIdentifier
-          isEqualToString:@"com.apple.Preferences"]) {
+          isEqualToString:
+          @"com.apple.Preferences"]) {
 
         return;
     }
@@ -1031,15 +900,14 @@ static void SGSRefresh(void) {
         ),
         dispatch_get_main_queue(), ^{
 
-            SGSCreateSearchBar();
-        }
-    );
+        SGSCreateSearchBar();
+    });
 }
 
 %end
 
 
-#pragma mark - Darwin Notification
+#pragma mark - Preferences Notification
 
 static void SGSPreferencesChanged(
     CFNotificationCenterRef center,
@@ -1060,32 +928,18 @@ static void SGSPreferencesChanged(
 
 %ctor {
 
-    /*
-     * Só injeta no Settings.
-     */
-
     NSString *bundleIdentifier =
         [[NSBundle mainBundle]
             bundleIdentifier];
 
     if (![bundleIdentifier
-          isEqualToString:@"com.apple.Preferences"]) {
+          isEqualToString:
+          @"com.apple.Preferences"]) {
 
         return;
     }
 
-
-    /*
-     * Carrega preferências.
-     */
-
     SGSLoadPreferences();
-
-
-    /*
-     * Escuta alterações do painel
-     * de preferências.
-     */
 
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
@@ -1097,12 +951,6 @@ static void SGSPreferencesChanged(
         NULL,
         CFNotificationSuspensionBehaviorDeliverImmediately
     );
-
-
-    /*
-     * Cria a barra depois que o Settings
-     * terminar de carregar.
-     */
 
     dispatch_async(
         dispatch_get_main_queue(), ^{
