@@ -106,6 +106,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         MIN(CGRectGetWidth(frame), CGRectGetHeight(frame)) * 0.5;
 
     [self setupSpecular];
+    [self updateSpecularAppearance];
     [self applyLiquidGlass];
 
     return self;
@@ -154,6 +155,36 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     [self.layer addSublayer:_specular];
     [self.layer addSublayer:_specularBoost];
+}
+
+- (void)updateSpecularAppearance {
+    BOOL dark = NO;
+
+    if (@available(iOS 13.0, *)) {
+        dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
+    }
+
+    UIColor *specularColor = dark ? UIColor.whiteColor : UIColor.blackColor;
+
+    _specular.colors = @[
+        (id)[specularColor colorWithAlphaComponent:0.70].CGColor,
+        (id)[specularColor colorWithAlphaComponent:0.05].CGColor,
+        (id)[specularColor colorWithAlphaComponent:0.42].CGColor
+    ];
+
+    _specularBoost.colors = @[
+        (id)[specularColor colorWithAlphaComponent:0.95].CGColor,
+        (id)[specularColor colorWithAlphaComponent:0.0].CGColor,
+        (id)[specularColor colorWithAlphaComponent:0.68].CGColor
+    ];
+
+    /*
+     * Do not use screen/overlay compositing here.
+     * It can pick up colors from the refracted background and make
+     * a white highlight appear blue/purple. The highlight itself
+     * must remain strictly monochrome.
+     */
+    _specularBoost.compositingFilter = nil;
 }
 
 - (void)layoutSpecular {
@@ -389,6 +420,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         if (previousTraitCollection.userInterfaceStyle !=
             self.traitCollection.userInterfaceStyle) {
 
+            [self updateSpecularAppearance];
             [self applyLiquidGlass];
         }
     }
@@ -401,6 +433,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.layer.cornerCurve = kCACornerCurveContinuous;
     self.layer.masksToBounds = YES;
 
+    [self updateSpecularAppearance];
     [self layoutSpecular];
 
     if (!self.liquidFilterAvailable)
