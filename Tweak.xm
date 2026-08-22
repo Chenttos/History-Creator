@@ -114,46 +114,27 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
 - (void)setupSpecular {
     /*
-     * Same visual concept used by LGLiveBackdropView:
-     * a normal specular gradient and a stronger overlay-blended
-     * gradient, both clipped to the rounded glass shape.
+     * Visible edge specular highlight.
+     *
+     * The previous implementation used a transparent fill mask with a
+     * 1pt stroke and an overlay blend mode. On a CABackdropLayer this can
+     * become effectively invisible. We instead use a normal source-over
+     * gradient and a thicker edge-band mask. This is still a highlight,
+     * not a permanent border: its alpha varies along the edge.
      */
-
     _specular = [CAGradientLayer layer];
-
-    _specular.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.78].CGColor,
-        (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.36].CGColor
-    ];
-
-    _specular.locations = @[
-        @0.0,
-        @0.50,
-        @1.0
-    ];
-
     _specularBoost = [CAGradientLayer layer];
-
-    _specularBoost.colors = @[
-        (id)[UIColor colorWithWhite:1.0 alpha:0.62].CGColor,
-        (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:1.0 alpha:0.28].CGColor
-    ];
-
-    _specularBoost.locations = @[
-        @0.0,
-        @0.50,
-        @1.0
-    ];
-
-    _specularBoost.compositingFilter = @"overlayBlendMode";
 
     _specularMask = [CAShapeLayer layer];
     _specularBoostMask = [CAShapeLayer layer];
 
     _specular.mask = _specularMask;
     _specularBoost.mask = _specularBoostMask;
+
+    _specular.zPosition = 100.0;
+    _specularBoost.zPosition = 101.0;
+
+    _specularBoost.compositingFilter = nil;
 
     [self.layer addSublayer:_specular];
     [self.layer addSublayer:_specularBoost];
@@ -165,24 +146,46 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     if (@available(iOS 13.0, *))
         dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
 
-    CGFloat white = dark ? 1.0 : 0.0;
+    CGFloat highlightWhite = dark ? 1.0 : 0.0;
+
+    UIColor *strong =
+        [UIColor colorWithWhite:highlightWhite alpha:0.95];
+
+    UIColor *medium =
+        [UIColor colorWithWhite:highlightWhite alpha:0.62];
+
+    UIColor *soft =
+        [UIColor colorWithWhite:highlightWhite alpha:0.18];
 
     _specular.colors = @[
-        (id)[UIColor colorWithWhite:white alpha:0.78].CGColor,
-        (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:white alpha:0.36].CGColor
+        (id)strong.CGColor,
+        (id)soft.CGColor,
+        (id)UIColor.clearColor.CGColor,
+        (id)medium.CGColor,
+        (id)strong.CGColor
+    ];
+
+    _specular.locations = @[
+        @0.0, @0.12, @0.48, @0.82, @1.0
     ];
 
     _specularBoost.colors = @[
-        (id)[UIColor colorWithWhite:white alpha:0.62].CGColor,
-        (id)[UIColor clearColor].CGColor,
-        (id)[UIColor colorWithWhite:white alpha:0.28].CGColor
+        (id)[UIColor colorWithWhite:highlightWhite alpha:0.55].CGColor,
+        (id)UIColor.clearColor.CGColor,
+        (id)[UIColor colorWithWhite:highlightWhite alpha:0.48].CGColor
+    ];
+
+    _specularBoost.locations = @[
+        @0.0, @0.50, @1.0
     ];
 }
 
 - (void)layoutSpecular {
     CGRect bounds = self.bounds;
-    CGFloat radius = self.cornerRadius;
+    CGFloat radius = MAX(0.0, self.cornerRadius);
+
+    if (CGRectIsEmpty(bounds))
+        return;
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -190,38 +193,44 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     _specular.frame = bounds;
     _specularBoost.frame = bounds;
 
+    /*
+     * A 2.6pt edge band makes the highlight clearly visible while
+     * remaining a lighting effect rather than a uniform outline.
+     */
+    CGFloat inset = 1.30;
+    CGFloat edgeWidth = 2.60;
+
     UIBezierPath *path =
         [UIBezierPath bezierPathWithRoundedRect:
-            CGRectInset(bounds, 0.35, 0.35)
-            cornerRadius:MAX(0.0, radius - 0.35)];
+            CGRectInset(bounds, inset, inset)
+            cornerRadius:MAX(0.0, radius - inset)];
 
     _specularMask.frame = bounds;
     _specularMask.path = path.CGPath;
     _specularMask.fillColor = UIColor.clearColor.CGColor;
-    _specularMask.strokeColor = UIColor.blackColor.CGColor;
-    _specularMask.lineWidth = 1.0;
+    _specularMask.strokeColor = UIColor.whiteColor.CGColor;
+    _specularMask.lineWidth = edgeWidth;
 
     _specularBoostMask.frame = bounds;
     _specularBoostMask.path = path.CGPath;
     _specularBoostMask.fillColor = UIColor.clearColor.CGColor;
-    _specularBoostMask.strokeColor = UIColor.blackColor.CGColor;
-    _specularBoostMask.lineWidth = 1.0;
+    _specularBoostMask.strokeColor = UIColor.whiteColor.CGColor;
+    _specularBoostMask.lineWidth = edgeWidth * 0.72;
 
     /*
-     * Same default specular angle used by Liquid (Gl)ass.
+     * Diagonal Fresnel-like highlight, matching the LiquidAss visual
+     * direction. The color itself is supplied by updateSpecularAppearance,
+     * so it is white in dark mode and black in light mode.
      */
     CGFloat angle = -M_PI_4;
     CGFloat dx = cos(angle) * 0.5;
     CGFloat dy = sin(angle) * 0.5;
 
-    _specular.startPoint =
-        CGPointMake(0.5 + dx, 0.5 + dy);
-
-    _specular.endPoint =
-        CGPointMake(0.5 - dx, 0.5 - dy);
+    _specular.startPoint = CGPointMake(0.5 + dx, 0.5 + dy);
+    _specular.endPoint   = CGPointMake(0.5 - dx, 0.5 - dy);
 
     _specularBoost.startPoint = _specular.startPoint;
-    _specularBoost.endPoint = _specular.endPoint;
+    _specularBoost.endPoint   = _specular.endPoint;
 
     [CATransaction commit];
 }
@@ -677,67 +686,72 @@ static UISearchBar *SGFindRealSearchBarInView(UIView *view);
 #pragma mark - Search action
 
 - (void)searchPressed:(id)sender {
-    UIViewController *vc =
-        [self nearestViewController];
-
+    /*
+     * The fake pill never performs its own search. It only reveals and
+     * focuses Apple's real Settings search field.
+     */
+    UIViewController *vc = [self nearestViewController];
     if (!vc)
         return;
 
-    UINavigationController *navigationController =
-        vc.navigationController;
+    UINavigationController *nav = vc.navigationController;
+    UIViewController *root =
+        nav ? nav.viewControllers.firstObject : vc;
 
-    if (navigationController &&
-        navigationController.viewControllers.count > 1) {
+    if (!root)
+        return;
 
-        [navigationController
-            popToRootViewControllerAnimated:YES];
+    if (nav && nav.topViewController != root) {
+        [nav popToViewController:root animated:YES];
     }
 
     dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW,
-                      (int64_t)(0.30 * NSEC_PER_SEC)),
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
         dispatch_get_main_queue(),
         ^{
-            UIViewController *root =
-                navigationController
-                ? navigationController.viewControllers.firstObject
-                : vc;
-
-            if (!root)
-                return;
-
             UISearchBar *searchBar =
-                [self findSearchBarInView:root.view];
+                SGFindRealSearchBarInView(root.view);
 
-            if (searchBar) {
-                UIScrollView *scroll =
-                    [self findScrollViewContainingView:searchBar];
+            if (!searchBar) {
+                dispatch_after(
+                    dispatch_time(DISPATCH_TIME_NOW,
+                                  (int64_t)(0.30 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(),
+                    ^{
+                        UISearchBar *retry =
+                            SGFindRealSearchBarInView(root.view);
 
-                if (scroll) {
-                    CGRect rect =
-                        [searchBar convertRect:searchBar.bounds
-                                        toView:scroll];
+                        if (retry) {
+                            UIScrollView *scroll =
+                                [self findScrollViewContainingView:retry];
 
-                    [scroll
-                        scrollRectToVisible:rect
-                        animated:YES];
-                }
+                            if (scroll) {
+                                CGRect rect =
+                                    [retry convertRect:retry.bounds
+                                                toView:scroll];
+                                [scroll scrollRectToVisible:rect animated:YES];
+                            }
 
-                [searchBar becomeFirstResponder];
+                            [retry setUserInteractionEnabled:YES];
+                            [retry becomeFirstResponder];
+                        }
+                    });
                 return;
             }
 
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW,
-                              (int64_t)(0.25 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(),
-                ^{
-                    UISearchBar *retry =
-                        [self findSearchBarInView:root.view];
+            UIScrollView *scroll =
+                [self findScrollViewContainingView:searchBar];
 
-                    if (retry)
-                        [retry becomeFirstResponder];
-                });
+            if (scroll) {
+                CGRect rect =
+                    [searchBar convertRect:searchBar.bounds
+                                    toView:scroll];
+
+                [scroll scrollRectToVisible:rect animated:YES];
+            }
+
+            [searchBar setUserInteractionEnabled:YES];
+            [searchBar becomeFirstResponder];
         });
 }
 
@@ -865,15 +879,35 @@ static BOOL SGSearchBarIsActuallyVisible(UISearchBar *searchBar) {
     if (!window || window.hidden || window.alpha < 0.01)
         return NO;
 
+    /*
+     * A search bar can remain in the hierarchy while collapsed/off-screen.
+     * Convert to window coordinates and require a meaningful visible area.
+     */
     CGRect rect = [searchBar convertRect:searchBar.bounds toView:window];
-    CGRect intersection = CGRectIntersection(rect, window.bounds);
 
-    if (CGRectIsNull(intersection) ||
-        CGRectGetWidth(intersection) < 8.0 ||
-        CGRectGetHeight(intersection) < 8.0)
+    if (CGRectIsNull(rect) || CGRectIsEmpty(rect))
         return NO;
 
-    return YES;
+    CGRect visible = CGRectIntersection(rect, window.bounds);
+
+    if (CGRectIsNull(visible) || CGRectIsEmpty(visible))
+        return NO;
+
+    CGFloat visibleArea =
+        CGRectGetWidth(visible) * CGRectGetHeight(visible);
+
+    CGFloat totalArea =
+        MAX(1.0, CGRectGetWidth(rect) * CGRectGetHeight(rect));
+
+    /*
+     * If even a small sliver remains at the edge, keep the fake pill
+     * hidden until the real search bar has actually left the screen.
+     */
+    if (visibleArea / totalArea < 0.08)
+        return NO;
+
+    return CGRectGetHeight(visible) >= 8.0 &&
+           CGRectGetWidth(visible) >= 40.0;
 }
 
 static void SGSetSearchGlassVisibility(UIViewController *controller) {
@@ -886,7 +920,14 @@ static void SGSetSearchGlassVisibility(UIViewController *controller) {
     if (!button)
         return;
 
-    if (!SGIsMainSettingsController(controller)) {
+    /*
+     * The button lives on the root Settings view. It must be hidden
+     * whenever another Settings controller is on top.
+     */
+    UINavigationController *nav = controller.navigationController;
+
+    if (!SGIsMainSettingsController(controller) ||
+        (nav && nav.topViewController != controller)) {
         button.hidden = YES;
         return;
     }
@@ -894,7 +935,14 @@ static void SGSetSearchGlassVisibility(UIViewController *controller) {
     UISearchBar *realSearch =
         SGFindRealSearchBarInView(controller.view);
 
+    /*
+     * Real visible search = fake hidden.
+     * Real search scrolled away = fake visible.
+     */
     button.hidden = SGSearchBarIsActuallyVisible(realSearch);
+
+    if (!button.hidden)
+        [controller.view bringSubviewToFront:button];
 }
 
 static void SGInstallSearchGlass(
@@ -912,6 +960,12 @@ static void SGInstallSearchGlass(
         (SGSearchButton *)[view viewWithTag:kSGSearchGlassTag];
 
     if (existing) {
+        existing.frame = CGRectMake(
+            (CGRectGetWidth(view.bounds) - MIN(326.0, MAX(270.0, CGRectGetWidth(view.bounds) - 32.0))) * 0.5,
+            CGRectGetHeight(view.bounds) - view.safeAreaInsets.bottom - 44.0 - 18.0,
+            MIN(326.0, MAX(270.0, CGRectGetWidth(view.bounds) - 32.0)),
+            44.0
+        );
         [view bringSubviewToFront:existing];
         SGSetSearchGlassVisibility(controller);
         return;
@@ -1070,23 +1124,23 @@ static void SGStopVisibilityPolling(UIViewController *controller) {
     if (![bundleID isEqualToString:@"com.apple.Preferences"])
         return;
 
-    UIViewController *top =
-        self.topViewController;
+    UIViewController *root = self.viewControllers.firstObject;
+    UIViewController *top = self.topViewController;
 
-    if (SGIsMainSettingsController(top)) {
-        SGInstallSearchGlass(top);
-        SGSetSearchGlassVisibility(top);
-    } else {
-        UIViewController *root = self.viewControllers.firstObject;
+    if (!root)
+        return;
 
-        if (root.view) {
-            SGSearchButton *button =
-                (SGSearchButton *)[root.view viewWithTag:kSGSearchGlassTag];
+    SGSearchButton *button =
+        (SGSearchButton *)[root.view viewWithTag:kSGSearchGlassTag];
 
-            if (button)
-                button.hidden = YES;
-        }
+    if (!SGIsMainSettingsController(root) || top != root) {
+        if (button)
+            button.hidden = YES;
+        return;
     }
+
+    SGInstallSearchGlass(root);
+    SGSetSearchGlassVisibility(root);
 }
 
 %end
