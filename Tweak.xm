@@ -425,6 +425,24 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 }
 
 - (void)buildUI {
+    UIBlurEffect *buttonBlurEffect =
+        [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemMaterial];
+
+    UIVisualEffectView *buttonBlur =
+        [[UIVisualEffectView alloc] initWithEffect:buttonBlurEffect];
+
+    buttonBlur.frame = self.bounds;
+    buttonBlur.userInteractionEnabled = NO;
+    buttonBlur.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth |
+        UIViewAutoresizingFlexibleHeight;
+    buttonBlur.layer.cornerRadius = 22.0;
+    buttonBlur.layer.cornerCurve = kCACornerCurveContinuous;
+    buttonBlur.clipsToBounds = YES;
+    buttonBlur.alpha = 0.72;
+
+    [self addSubview:buttonBlur];
+
     self.glassView =
         [[SGLiveGlassView alloc] initWithFrame:self.bounds];
 
@@ -730,11 +748,11 @@ static void SGInstallSearchGlass(
      * Smaller than the old 316 x 44 version.
      */
     CGFloat width =
-        MIN(316.0,
-            MAX(260.0,
+        MIN(326.0,
+            MAX(270.0,
                 CGRectGetWidth(view.bounds) - 32.0));
 
-    CGFloat height = 40.0;
+    CGFloat height = 44.0;
 
     CGFloat x =
         (CGRectGetWidth(view.bounds) - width) * 0.5;
