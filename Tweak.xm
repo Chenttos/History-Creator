@@ -393,39 +393,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
 @implementation SGSearchButton
 
-- (void)sg_updateRootVisibility {
-    BOOL root = [self sg_isRootSettingsController];
-
-    UIView *button = [self.view viewWithTag:0x53475347];
-    if (button) {
-        button.hidden = !root;
-        button.userInteractionEnabled = root;
-    }
-}
-
-
-
-- (BOOL)sg_isRootSettingsController {
-    // Settings root is the controller whose navigation controller has no
-    // parent Settings controller and is the first/top controller.
-    UINavigationController *nav = self.navigationController;
-
-    if (!nav) {
-        // On the initial Settings controller there may briefly be no nav
-        // controller during construction; allow it only if this is the
-        // Settings root class itself.
-        NSString *cls = NSStringFromClass([self class]);
-        return [cls isEqualToString:@"PSRootController"] ||
-               [cls isEqualToString:@"PSRootListController"];
-    }
-
-    UIViewController *root = nav.viewControllers.firstObject;
-
-    return root == self &&
-           nav.presentingViewController == nil;
-}
-
-
 
 - (void)updateAppearance {
     BOOL darkMode = NO;
