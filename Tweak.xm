@@ -762,22 +762,39 @@ static BOOL SGIsMainSettingsController(
     if (!controller)
         return NO;
 
-    Class psClass =
-        NSClassFromString(@"PSListController");
+    Class psClass = NSClassFromString(@"PSListController");
 
     if (!psClass ||
         ![controller isKindOfClass:psClass]) {
-
         return NO;
     }
 
-    NSString *className =
-        NSStringFromClass(controller.class);
+    NSString *className = NSStringFromClass(controller.class);
 
-    if ([className containsString:@"Search"])
+    // Explicit Settings root controller names.
+    if ([className isEqualToString:@"PSRootListController"] ||
+        [className isEqualToString:@"PSRootController"]) {
+        return YES;
+    }
+
+    // Fallback: only the first controller in the Settings navigation
+    // stack is considered the home page. Every pushed controller is denied.
+    UINavigationController *nav = controller.navigationController;
+
+    if (nav) {
+        UIViewController *root = nav.viewControllers.firstObject;
+
+        if (root != controller)
+            return NO;
+    }
+
+    // Never show it in search-related controllers.
+    if ([className rangeOfString:@"Search"
+                         options:NSCaseInsensitiveSearch].location != NSNotFound) {
         return NO;
+    }
 
-    return YES;
+    return nav ? (nav.viewControllers.count == 1) : NO;
 }
 
 static void SGInstallSearchGlass(
