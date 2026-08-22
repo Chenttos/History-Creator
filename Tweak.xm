@@ -263,22 +263,22 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * These are intentionally applied only to the Liquid Glass
      * filter, leaving the existing blur/specular design unchanged.
      */
-    SGSetValue(glassFilter, @2.35, @"inputRefraction");
-    SGSetValue(glassFilter, @1.85, @"inputRefractiveIndex");
+    SGSetValue(glassFilter, @6.99, @"inputRefraction");
+    SGSetValue(glassFilter, @3.85, @"inputRefractiveIndex");
     SGSetValue(glassFilter, @1.35, @"inputDisplacement");
     SGSetValue(glassFilter, @1.20, @"inputScale");
     SGSetValue(glassFilter, @1.0, @"inputBlur");
-    SGSetValue(glassFilter, @1.0, @"inputSpecular");
+    SGSetValue(glassFilter, @2.0, @"inputSpecular");
 
     /*
      * Liquid (Gl)ass SearchPill builds use these shorter keys.
      * Setting both forms is harmless because SGSetValue safely
      * ignores keys that are not exposed by the current filter.
      */
-    SGSetValue(glassFilter, @2.35, @"refraction");
-    SGSetValue(glassFilter, @1.85, @"refractiveIndex");
+    SGSetValue(glassFilter, @6.99, @"refraction");
+    SGSetValue(glassFilter, @3.85, @"refractiveIndex");
     SGSetValue(glassFilter, @1.0, @"blur");
-    SGSetValue(glassFilter, @1.0, @"specular");
+    SGSetValue(glassFilter, @2.0, @"specular");
 }
 
 - (void)applyLiquidGlass {
@@ -561,7 +561,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         UIViewAutoresizingFlexibleWidth |
         UIViewAutoresizingFlexibleHeight;
     self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
-    self.borderOverlay.layer.borderWidth = 0.8;
+    self.borderOverlay.layer.borderWidth = 0.3;
     [self addSubview:self.borderOverlay];
 
     [self updateTextAppearance];
