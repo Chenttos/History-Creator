@@ -418,6 +418,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @property(nonatomic, strong) UIImageView *searchIcon;
 @property(nonatomic, strong) UILabel *titleLabel;
 @property(nonatomic, strong) UIImageView *micIcon;
+@property(nonatomic, strong) UIView *borderOverlay;
 @end
 
 @implementation SGSearchButton
@@ -432,6 +433,8 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.opaque = NO;
     self.exclusiveTouch = YES;
     self.userInteractionEnabled = YES;
+
+    self.layer.cornerCurve = kCACornerCurveContinuous;
 
     [self buildUI];
 
@@ -498,7 +501,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         [[UIImageView alloc] initWithImage:searchImage];
 
     self.searchIcon.tintColor =
-        [UIColor colorWithWhite:0.08 alpha:0.92];
+        [UIColor colorWithWhite:0.0 alpha:0.92];
 
     self.searchIcon.contentMode =
         UIViewContentModeScaleAspectFit;
@@ -541,7 +544,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         [[UIImageView alloc] initWithImage:micImage];
 
     self.micIcon.tintColor =
-        [UIColor colorWithWhite:0.08 alpha:0.92];
+        [UIColor colorWithWhite:0.0 alpha:0.92];
 
     self.micIcon.contentMode =
         UIViewContentModeScaleAspectFit;
@@ -549,6 +552,17 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.micIcon.userInteractionEnabled = NO;
 
     [self addSubview:self.micIcon];
+
+    // Dedicated topmost outline so the thin border stays visible over the glass.
+    self.borderOverlay = [[UIView alloc] initWithFrame:self.bounds];
+    self.borderOverlay.backgroundColor = UIColor.clearColor;
+    self.borderOverlay.userInteractionEnabled = NO;
+    self.borderOverlay.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth |
+        UIViewAutoresizingFlexibleHeight;
+    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
+    self.borderOverlay.layer.borderWidth = 0.8;
+    [self addSubview:self.borderOverlay];
 
     [self updateTextAppearance];
 }
@@ -560,10 +574,19 @@ static NSString *SGEffectiveFilterType(UIView *view) {
         dark = (self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
     }
 
-    self.titleLabel.textColor =
+    UIColor *foreground =
         dark
-        ? [UIColor colorWithWhite:1.0 alpha:0.96]
-        : [UIColor colorWithWhite:0.0 alpha:0.92];
+        ? [UIColor colorWithWhite:1.0 alpha:1.0]
+        : [UIColor colorWithWhite:0.0 alpha:1.0];
+
+    // Text + both SF Symbols follow the interface appearance.
+    self.titleLabel.textColor = foreground;
+    self.searchIcon.tintColor = foreground;
+    self.micIcon.tintColor = foreground;
+
+    // Thin 0.8pt outline: white in Dark Mode, black in Light Mode.
+    self.borderOverlay.layer.borderColor = foreground.CGColor;
+    self.borderOverlay.layer.borderWidth = 0.8;
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
@@ -590,6 +613,13 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     self.glassView.frame = self.bounds;
     self.glassView.cornerRadius =
         MIN(22.0, height * 0.5);
+
+    self.layer.cornerRadius = self.glassView.cornerRadius;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+
+    self.borderOverlay.frame = self.bounds;
+    self.borderOverlay.layer.cornerRadius = self.glassView.cornerRadius;
+    self.borderOverlay.layer.cornerCurve = kCACornerCurveContinuous;
 
     self.searchIcon.frame =
         CGRectMake(11.0,
