@@ -1,12 +1,5 @@
 #import <UIKit/UIKit.h>
-
-/*
- * SearchGlass
- * iOS 16 / Rootless
- *
- * Barra de pesquisa estilo glass na parte inferior
- * do aplicativo Ajustes.
- */
+#import <QuartzCore/QuartzCore.h>
 
 static NSString * const SGSPreferencesID =
     @"com.samuel.settingsglasssearch";
@@ -14,25 +7,22 @@ static NSString * const SGSPreferencesID =
 static UIView *sgsContainer = nil;
 
 static BOOL sgsEnabled = YES;
-static CGFloat sgsOpacity = 0.72;
-static CGFloat sgsBlur = 18.0;
-static CGFloat sgsRadius = 28.0;
+static CGFloat sgsOpacity = 1.0;
+static CGFloat sgsBlur = 14.0;
+static CGFloat sgsRadius = 22.0;
 
 
 #pragma mark - Preferences
 
-static void SGSLoadPreferences(void) {
-
+static void SGSLoadPreferences(void)
+{
     NSUserDefaults *defaults =
         [[NSUserDefaults alloc] initWithSuiteName:SGSPreferencesID];
 
-    if (defaults) {
-
+    if (defaults)
+    {
         if ([defaults objectForKey:@"enabled"])
             sgsEnabled = [defaults boolForKey:@"enabled"];
-
-        if ([defaults objectForKey:@"opacity"])
-            sgsOpacity = [defaults doubleForKey:@"opacity"];
 
         if ([defaults objectForKey:@"blur"])
             sgsBlur = [defaults doubleForKey:@"blur"];
@@ -41,120 +31,86 @@ static void SGSLoadPreferences(void) {
             sgsRadius = [defaults doubleForKey:@"radius"];
     }
 
-    sgsOpacity = MIN(MAX(sgsOpacity, 0.1), 1.0);
-    sgsBlur = MIN(MAX(sgsBlur, 1.0), 50.0);
-    sgsRadius = MIN(MAX(sgsRadius, 8.0), 50.0);
+    sgsBlur = MIN(MAX(sgsBlur, 1.0), 40.0);
+    sgsRadius = MIN(MAX(sgsRadius, 10.0), 35.0);
 }
 
 
 #pragma mark - Settings Window
 
-static UIWindow *SGSGetSettingsWindow(void) {
-
+static UIWindow *SGSGetSettingsWindow(void)
+{
     UIApplication *application =
         [UIApplication sharedApplication];
 
-    UIWindow *result = nil;
+    UIWindow *bestWindow = nil;
 
-    for (UIScene *scene in application.connectedScenes) {
-
+    for (UIScene *scene in application.connectedScenes)
+    {
         if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
 
         UIWindowScene *windowScene =
             (UIWindowScene *)scene;
 
-        if (windowScene.activationState !=
-            UISceneActivationStateForegroundActive)
+        if (windowScene.activationState ==
+            UISceneActivationStateUnattached)
             continue;
 
-        for (UIWindow *window in windowScene.windows) {
+        for (UIWindow *window in windowScene.windows)
+        {
+            if (window.hidden)
+                continue;
 
-            if (!window.hidden &&
-                window.rootViewController &&
-                window.windowLevel == UIWindowLevelNormal) {
+            if (!window.rootViewController)
+                continue;
 
-                result = window;
+            if (window.isKeyWindow)
+                return window;
 
-                if (window.isKeyWindow)
-                    return window;
-            }
+            bestWindow = window;
         }
     }
 
-    return result;
+    return bestWindow;
 }
 
 
-#pragma mark - Find Search Bar
+#pragma mark - Recursive Search
 
-static UISearchBar *SGSFindSearchBarInView(UIView *view) {
-
+static UISearchBar *SGSFindSearchBar(UIView *view)
+{
     if (!view)
         return nil;
 
     if ([view isKindOfClass:[UISearchBar class]])
         return (UISearchBar *)view;
 
-    for (UIView *subview in view.subviews) {
+    for (UIView *subview in view.subviews)
+    {
+        UISearchBar *bar =
+            SGSFindSearchBar(subview);
 
-        UISearchBar *result =
-            SGSFindSearchBarInView(subview);
-
-        if (result)
-            return result;
+        if (bar)
+            return bar;
     }
 
     return nil;
 }
 
 
-#pragma mark - Find Search Controller
-
 static UISearchController *
-SGSFindSearchController(UIViewController *controller) {
-
+SGSFindSearchController(UIViewController *controller)
+{
     if (!controller)
         return nil;
 
     if (controller.navigationItem.searchController)
         return controller.navigationItem.searchController;
 
-    if ([controller isKindOfClass:
-        [UINavigationController class]]) {
-
-        UINavigationController *navigation =
-            (UINavigationController *)controller;
-
-        UISearchController *result =
-            SGSFindSearchController(
-                navigation.visibleViewController
-            );
-
-        if (result)
-            return result;
-    }
-
-    if ([controller isKindOfClass:
-        [UISplitViewController class]]) {
-
-        UISplitViewController *split =
-            (UISplitViewController *)controller;
-
-        for (UIViewController *child
-             in split.viewControllers) {
-
-            UISearchController *result =
-                SGSFindSearchController(child);
-
-            if (result)
-                return result;
-        }
-    }
-
     for (UIViewController *child
-         in controller.childViewControllers) {
-
+         in controller.childViewControllers)
+    {
         UISearchController *result =
             SGSFindSearchController(child);
 
@@ -162,16 +118,110 @@ SGSFindSearchController(UIViewController *controller) {
             return result;
     }
 
+    if ([controller isKindOfClass:
+        [UINavigationController class]])
+    {
+        UINavigationController *nav =
+            (UINavigationController *)controller;
+
+        return SGSFindSearchController(
+            nav.visibleViewController
+        );
+    }
+
+    if ([controller isKindOfClass:
+        [UISplitViewController class]])
+    {
+        UISplitViewController *split =
+            (UISplitViewController *)controller;
+
+        for (UIViewController *vc
+             in split.viewControllers)
+        {
+            UISearchController *result =
+                SGSFindSearchController(vc);
+
+            if (result)
+                return result;
+        }
+    }
+
     return nil;
 }
 
 
-#pragma mark - Open Native Settings Search
+#pragma mark - Find "Search" UI
 
-static void SGSOpenNativeSearch(void) {
+static UIView *SGSFindSearchElement(UIView *view)
+{
+    if (!view)
+        return nil;
 
+    /*
+     * UISearchBar
+     */
+
+    if ([view isKindOfClass:[UISearchBar class]])
+        return view;
+
+
+    /*
+     * UILabel contendo "Search"
+     */
+
+    if ([view isKindOfClass:[UILabel class]])
+    {
+        UILabel *label = (UILabel *)view;
+
+        NSString *text = label.text;
+
+        if (text.length &&
+            [text localizedCaseInsensitiveCompare:@"Search"] == NSOrderedSame)
+        {
+            return view.superview;
+        }
+    }
+
+
+    /*
+     * UIButton contendo "Search"
+     */
+
+    if ([view isKindOfClass:[UIButton class]])
+    {
+        UIButton *button = (UIButton *)view;
+
+        NSString *title =
+            [button titleForState:UIControlStateNormal];
+
+        if (title.length &&
+            [title localizedCaseInsensitiveCompare:@"Search"] == NSOrderedSame)
+        {
+            return button;
+        }
+    }
+
+
+    for (UIView *subview in view.subviews)
+    {
+        UIView *result =
+            SGSFindSearchElement(subview);
+
+        if (result)
+            return result;
+    }
+
+    return nil;
+}
+
+
+#pragma mark - Open Settings Search
+
+static void SGSOpenNativeSearch(void)
+{
     dispatch_async(
-        dispatch_get_main_queue(), ^{
+        dispatch_get_main_queue(),
+        ^{
 
         UIWindow *window =
             SGSGetSettingsWindow();
@@ -185,159 +235,166 @@ static void SGSOpenNativeSearch(void) {
         if (!root)
             return;
 
+
         /*
-         * Primeiro tenta encontrar uma barra
-         * de pesquisa que já esteja na tela.
+         * 1. Se já existe uma UISearchBar,
+         *    simplesmente ativa.
          */
 
-        UISearchBar *searchBar =
-            SGSFindSearchBarInView(window);
+        UISearchBar *bar =
+            SGSFindSearchBar(window);
 
-        if (searchBar) {
-
-            [searchBar becomeFirstResponder];
-
-            [searchBar setShowsCancelButton:YES
-                                    animated:YES];
-
+        if (bar)
+        {
+            [bar setHidden:NO];
+            [bar becomeFirstResponder];
             return;
         }
 
+
         /*
-         * Depois procura UISearchController.
+         * 2. Procura UISearchController.
          */
 
-        UISearchController *searchController =
+        UISearchController *controller =
             SGSFindSearchController(root);
 
-        if (searchController) {
+        if (controller)
+        {
+            controller.active = YES;
 
-            searchController.active = YES;
-
-            [searchController.searchBar
+            [controller.searchBar
                 becomeFirstResponder];
 
             return;
         }
 
-        /*
-         * Tenta encontrar a NavigationController.
-         */
-
-        UINavigationController *navigation = nil;
-
-        if ([root isKindOfClass:
-            [UINavigationController class]]) {
-
-            navigation =
-                (UINavigationController *)root;
-        }
 
         /*
-         * iPad / Split View.
+         * 3. Procura o botão/célula "Search"
+         *    existente no Ajustes.
          */
 
-        if (!navigation &&
-            [root isKindOfClass:
-            [UISplitViewController class]]) {
+        UIView *searchElement =
+            SGSFindSearchElement(window);
 
-            UISplitViewController *split =
-                (UISplitViewController *)root;
+        if (searchElement)
+        {
+            if ([searchElement
+                 isKindOfClass:[UIButton class]])
+            {
+                UIButton *button =
+                    (UIButton *)searchElement;
 
-            for (UIViewController *controller
-                 in split.viewControllers) {
+                [button sendActionsForControlEvents:
+                    UIControlEventPrimaryActionTriggered];
 
-                if ([controller isKindOfClass:
-                    [UINavigationController class]]) {
+                return;
+            }
 
-                    navigation =
-                        (UINavigationController *)controller;
+            /*
+             * Tenta encontrar um UIButton
+             * dentro do elemento.
+             */
 
-                    break;
+            for (UIView *subview
+                 in searchElement.subviews)
+            {
+                if ([subview
+                     isKindOfClass:[UIButton class]])
+                {
+                    UIButton *button =
+                        (UIButton *)subview;
+
+                    [button sendActionsForControlEvents:
+                        UIControlEventPrimaryActionTriggered];
+
+                    return;
                 }
             }
         }
 
-        if (!navigation)
-            return;
 
         /*
-         * Volta para a raiz do Ajustes.
-         */
-
-        [navigation
-            popToRootViewControllerAnimated:NO];
-
-        /*
-         * Dá tempo para a interface
-         * nativa do Ajustes aparecer.
+         * 4. Dá tempo para o Ajustes
+         *    terminar de montar sua interface.
          */
 
         dispatch_after(
             dispatch_time(
                 DISPATCH_TIME_NOW,
-                0.35 * NSEC_PER_SEC
+                0.25 * NSEC_PER_SEC
             ),
-            dispatch_get_main_queue(), ^{
+            dispatch_get_main_queue(),
+            ^{
 
-            UISearchController *search =
-                SGSFindSearchController(navigation);
+            UISearchBar *lateBar =
+                SGSFindSearchBar(window);
 
-            if (search) {
-
-                search.active = YES;
-
-                [search.searchBar
-                    becomeFirstResponder];
-
+            if (lateBar)
+            {
+                [lateBar becomeFirstResponder];
                 return;
             }
 
-            UISearchBar *bar =
-                SGSFindSearchBarInView(
-                    navigation.view
+            UISearchController *lateController =
+                SGSFindSearchController(
+                    window.rootViewController
                 );
 
-            if (bar)
-                [bar becomeFirstResponder];
+            if (lateController)
+            {
+                lateController.active = YES;
+
+                [lateController.searchBar
+                    becomeFirstResponder];
+            }
         });
     });
 }
 
 
-#pragma mark - Search Glass Control
+#pragma mark - Pixel Glass Search Control
 
 @interface SGSSearchControl : UIControl
 
-@property(nonatomic, strong)
-UIVisualEffectView *blurView;
+@property(nonatomic,strong)
+UIVisualEffectView *backdropView;
 
-@property(nonatomic, strong)
-UIView *glassTint;
+@property(nonatomic,strong)
+UIView *reflectionView;
 
-@property(nonatomic, strong)
+@property(nonatomic,strong)
 UIImageView *searchIcon;
 
-@property(nonatomic, strong)
+@property(nonatomic,strong)
 UILabel *searchLabel;
 
-@property(nonatomic, strong)
+@property(nonatomic,strong)
 UIImageView *micIcon;
 
-@property(nonatomic, strong)
-CAGradientLayer *reflectionLayer;
+@property(nonatomic,strong)
+CAGradientLayer *edgeGradient;
+
+@property(nonatomic,strong)
+CAGradientLayer *topReflection;
+
+@property(nonatomic,strong)
+CAReplicatorLayer *pixelLayer;
 
 @end
 
 
 @implementation SGSSearchControl
 
-- (instancetype)initWithFrame:(CGRect)frame {
 
-    self = [super initWithFrame:frame];
+- (instancetype)initWithFrame:(CGRect)frame
+{
+    self =
+        [super initWithFrame:frame];
 
-    if (self) {
-
+    if (self)
+    {
         self.backgroundColor =
             UIColor.clearColor;
 
@@ -349,59 +406,135 @@ CAGradientLayer *reflectionLayer;
         self.layer.masksToBounds = YES;
 
 
-        /*
-         * Glass blur
-         */
+        #pragma mark Backdrop
 
         UIBlurEffect *blurEffect =
             [UIBlurEffect
                 effectWithStyle:
-                UIBlurEffectStyleSystemMaterial];
+                UIBlurEffectStyleSystemChromeMaterial];
 
-        self.blurView =
+        self.backdropView =
             [[UIVisualEffectView alloc]
                 initWithEffect:blurEffect];
 
-        self.blurView.translatesAutoresizingMaskIntoConstraints =
+        self.backdropView.translatesAutoresizingMaskIntoConstraints =
             NO;
 
-        self.blurView.alpha =
-            MIN(MAX(sgsBlur / 20.0, 0.2), 1.0);
-
-        [self addSubview:self.blurView];
-
-
         /*
-         * Glass tint
+         * O conteúdo atrás continua sendo
+         * atualizado pelo sistema.
          */
 
-        self.glassTint =
+        self.backdropView.alpha = 1.0;
+
+        [self addSubview:
+            self.backdropView];
+
+
+        #pragma mark Reflection
+
+        self.reflectionView =
             [[UIView alloc] init];
 
-        self.glassTint.translatesAutoresizingMaskIntoConstraints =
+        self.reflectionView.translatesAutoresizingMaskIntoConstraints =
             NO;
 
-        self.glassTint.backgroundColor =
-            [[UIColor whiteColor]
-                colorWithAlphaComponent:
-                sgsOpacity * 0.30];
+        self.reflectionView.backgroundColor =
+            UIColor.clearColor;
 
-        [self addSubview:self.glassTint];
+        self.reflectionView.userInteractionEnabled =
+            NO;
+
+        [self addSubview:
+            self.reflectionView];
 
 
         /*
-         * Search icon
+         * Reflexo superior
          */
+
+        self.topReflection =
+            [CAGradientLayer layer];
+
+        self.topReflection.colors = @[
+            (id)[[UIColor whiteColor]
+                colorWithAlphaComponent:0.34].CGColor,
+
+            (id)[[UIColor whiteColor]
+                colorWithAlphaComponent:0.08].CGColor,
+
+            (id)[UIColor clearColor].CGColor
+        ];
+
+        self.topReflection.locations = @[
+            @0.0,
+            @0.28,
+            @0.75
+        ];
+
+        self.topReflection.startPoint =
+            CGPointMake(0.5, 0.0);
+
+        self.topReflection.endPoint =
+            CGPointMake(0.5, 1.0);
+
+        [self.reflectionView.layer
+            addSublayer:self.topReflection];
+
+
+        #pragma mark Pixel Grid
+
+        /*
+         * Pequenos pixels transparentes.
+         * Eles dão o aspecto pixel-glass sem
+         * substituir o backdrop vivo.
+         */
+
+        self.pixelLayer =
+            [CAReplicatorLayer layer];
+
+        CALayer *pixel =
+            [CALayer layer];
+
+        pixel.frame =
+            CGRectMake(0, 0, 2.0, 2.0);
+
+        pixel.backgroundColor =
+            [[UIColor whiteColor]
+                colorWithAlphaComponent:0.045].CGColor;
+
+        pixel.cornerRadius = 0.5;
+
+        self.pixelLayer.instanceCount = 60;
+
+        self.pixelLayer.instanceTransform =
+            CATransform3DMakeTranslation(
+                4.0,
+                0,
+                0
+            );
+
+        self.pixelLayer.instanceDelay = 0.0;
+
+        [self.pixelLayer addSublayer:pixel];
+
+        [self.layer addSublayer:
+            self.pixelLayer];
+
+
+        #pragma mark Search Icon
 
         UIImageSymbolConfiguration *searchConfig =
             [UIImageSymbolConfiguration
-                configurationWithPointSize:31.0
+                configurationWithPointSize:24.0
                 weight:UIImageSymbolWeightRegular];
 
         UIImage *searchImage =
             [UIImage
-                systemImageNamed:@"magnifyingglass"
-                withConfiguration:searchConfig];
+                systemImageNamed:
+                    @"magnifyingglass"
+                withConfiguration:
+                    searchConfig];
 
         self.searchIcon =
             [[UIImageView alloc]
@@ -416,12 +549,11 @@ CAGradientLayer *reflectionLayer;
         self.searchIcon.contentMode =
             UIViewContentModeScaleAspectFit;
 
-        [self addSubview:self.searchIcon];
+        [self addSubview:
+            self.searchIcon];
 
 
-        /*
-         * Search text
-         */
+        #pragma mark Search Label
 
         self.searchLabel =
             [[UILabel alloc] init];
@@ -438,22 +570,18 @@ CAGradientLayer *reflectionLayer;
 
         self.searchLabel.font =
             [UIFont
-                systemFontOfSize:29.0
+                systemFontOfSize:21.0
                 weight:UIFontWeightRegular];
 
-        [self addSubview:self.searchLabel];
+        [self addSubview:
+            self.searchLabel];
 
 
-        /*
-         * Microphone
-         *
-         * CORREÇÃO:
-         * UIImageSymbolWeightMedium
-         */
+        #pragma mark Microphone
 
         UIImageSymbolConfiguration *micConfig =
             [UIImageSymbolConfiguration
-                configurationWithPointSize:29.0
+                configurationWithPointSize:22.0
                 weight:UIImageSymbolWeightMedium];
 
         UIImage *micImage =
@@ -474,55 +602,54 @@ CAGradientLayer *reflectionLayer;
         self.micIcon.contentMode =
             UIViewContentModeScaleAspectFit;
 
-        [self addSubview:self.micIcon];
+        [self addSubview:
+            self.micIcon];
 
 
-        /*
-         * Constraints
-         */
+        #pragma mark Constraints
 
         [NSLayoutConstraint activateConstraints:@[
 
             /*
-             * Blur
+             * Backdrop
              */
 
-            [self.blurView.leadingAnchor
+            [self.backdropView.leadingAnchor
                 constraintEqualToAnchor:
-                self.leadingAnchor],
+                    self.leadingAnchor],
 
-            [self.blurView.trailingAnchor
+            [self.backdropView.trailingAnchor
                 constraintEqualToAnchor:
-                self.trailingAnchor],
+                    self.trailingAnchor],
 
-            [self.blurView.topAnchor
+            [self.backdropView.topAnchor
                 constraintEqualToAnchor:
-                self.topAnchor],
+                    self.topAnchor],
 
-            [self.blurView.bottomAnchor
+            [self.backdropView.bottomAnchor
                 constraintEqualToAnchor:
-                self.bottomAnchor],
+                    self.bottomAnchor],
 
 
             /*
-             * Tint
+             * Reflection
              */
 
-            [self.glassTint.leadingAnchor
+            [self.reflectionView.leadingAnchor
                 constraintEqualToAnchor:
-                self.leadingAnchor],
+                    self.leadingAnchor],
 
-            [self.glassTint.trailingAnchor
+            [self.reflectionView.trailingAnchor
                 constraintEqualToAnchor:
-                self.trailingAnchor],
+                    self.trailingAnchor],
 
-            [self.glassTint.topAnchor
+            [self.reflectionView.topAnchor
                 constraintEqualToAnchor:
-                self.topAnchor],
+                    self.topAnchor],
 
-            [self.glassTint.bottomAnchor
+            [self.reflectionView.bottomAnchor
                 constraintEqualToAnchor:
-                self.bottomAnchor],
+                    self.bottomAnchor],
 
 
             /*
@@ -531,37 +658,37 @@ CAGradientLayer *reflectionLayer;
 
             [self.searchIcon.leadingAnchor
                 constraintEqualToAnchor:
-                self.leadingAnchor
-                constant:26.0],
+                    self.leadingAnchor
+                    constant:17.0],
 
             [self.searchIcon.centerYAnchor
                 constraintEqualToAnchor:
-                self.centerYAnchor],
+                    self.centerYAnchor],
 
             [self.searchIcon.widthAnchor
-                constraintEqualToConstant:34.0],
+                constraintEqualToConstant:27.0],
 
             [self.searchIcon.heightAnchor
-                constraintEqualToConstant:34.0],
+                constraintEqualToConstant:27.0],
 
 
             /*
-             * Search text
+             * Label
              */
 
             [self.searchLabel.leadingAnchor
                 constraintEqualToAnchor:
-                self.searchIcon.trailingAnchor
-                constant:20.0],
+                    self.searchIcon.trailingAnchor
+                    constant:13.0],
 
             [self.searchLabel.centerYAnchor
                 constraintEqualToAnchor:
-                self.centerYAnchor],
+                    self.centerYAnchor],
 
             [self.searchLabel.trailingAnchor
                 constraintLessThanOrEqualToAnchor:
-                self.micIcon.leadingAnchor
-                constant:-15.0],
+                    self.micIcon.leadingAnchor
+                    constant:-10.0],
 
 
             /*
@@ -570,98 +697,138 @@ CAGradientLayer *reflectionLayer;
 
             [self.micIcon.trailingAnchor
                 constraintEqualToAnchor:
-                self.trailingAnchor
-                constant:-26.0],
+                    self.trailingAnchor
+                    constant:-17.0],
 
             [self.micIcon.centerYAnchor
                 constraintEqualToAnchor:
-                self.centerYAnchor],
+                    self.centerYAnchor],
 
             [self.micIcon.widthAnchor
-                constraintEqualToConstant:34.0],
+                constraintEqualToConstant:27.0],
 
             [self.micIcon.heightAnchor
-                constraintEqualToConstant:34.0]
+                constraintEqualToConstant:27.0]
 
         ]];
 
 
-        /*
-         * Reflection
-         */
-
-        self.reflectionLayer =
-            [CAGradientLayer layer];
-
-        self.reflectionLayer.colors = @[
-
-            (id)[[UIColor whiteColor]
-                colorWithAlphaComponent:0.38].CGColor,
-
-            (id)[[UIColor whiteColor]
-                colorWithAlphaComponent:0.10].CGColor,
-
-            (id)[[UIColor clearColor]
-                colorWithAlphaComponent:0.0].CGColor
-        ];
-
-        self.reflectionLayer.startPoint =
-            CGPointMake(0.5, 0.0);
-
-        self.reflectionLayer.endPoint =
-            CGPointMake(0.5, 0.65);
-
-        [self.layer addSublayer:
-            self.reflectionLayer];
-
+        #pragma mark Border
 
         /*
-         * Border
+         * Borda muito fina, tipo vidro.
          */
 
         self.layer.borderWidth =
-            0.7;
+            0.75;
 
         self.layer.borderColor =
             [[UIColor whiteColor]
-                colorWithAlphaComponent:0.65].CGColor;
+                colorWithAlphaComponent:0.52].CGColor;
+
+
+        #pragma mark Edge Reflection
+
+        self.edgeGradient =
+            [CAGradientLayer layer];
+
+        self.edgeGradient.colors = @[
+            (id)[[UIColor whiteColor]
+                colorWithAlphaComponent:0.60].CGColor,
+
+            (id)[[UIColor whiteColor]
+                colorWithAlphaComponent:0.04].CGColor,
+
+            (id)[[UIColor whiteColor]
+                colorWithAlphaComponent:0.45].CGColor
+        ];
+
+        self.edgeGradient.locations = @[
+            @0.0,
+            @0.50,
+            @1.0
+        ];
+
+        self.edgeGradient.startPoint =
+            CGPointMake(0.0, 0.0);
+
+        self.edgeGradient.endPoint =
+            CGPointMake(1.0, 0.0);
+
+        self.edgeGradient.mask =
+            [CAShapeLayer layer];
+
+        [self.layer addSublayer:
+            self.edgeGradient];
     }
 
     return self;
 }
 
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     [super layoutSubviews];
 
     self.layer.cornerRadius =
         sgsRadius;
 
-    self.reflectionLayer.frame =
+    self.topReflection.frame =
         self.bounds;
 
-    self.reflectionLayer.cornerRadius =
-        sgsRadius;
+    self.edgeGradient.frame =
+        self.bounds;
+
+    CAShapeLayer *mask =
+        (CAShapeLayer *)self.edgeGradient.mask;
+
+    UIBezierPath *outer =
+        [UIBezierPath
+            bezierPathWithRoundedRect:
+                self.bounds
+            cornerRadius:
+                sgsRadius];
+
+    UIBezierPath *inner =
+        [UIBezierPath
+            bezierPathWithRoundedRect:
+                CGRectInset(self.bounds, 0.8, 0.8)
+            cornerRadius:
+                MAX(sgsRadius - 0.8, 0)];
+
+    [outer appendPath:
+        [inner
+            bezierPathByReversingPath]];
+
+    mask.path =
+        outer.CGPath;
+
+    /*
+     * Pixel pattern cobre toda a barra.
+     */
+
+    self.pixelLayer.frame =
+        self.bounds;
 }
 
 
-#pragma mark - Touch
+#pragma mark Touch
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch
-                      withEvent:(UIEvent *)event {
-
+                      withEvent:(UIEvent *)event
+{
     BOOL result =
-        [super beginTrackingWithTouch:touch
-                            withEvent:event];
+        [super beginTrackingWithTouch:
+            touch
+            withEvent:event];
 
-    [UIView animateWithDuration:0.10
+    [UIView animateWithDuration:0.08
                      animations:^{
 
         self.transform =
             CGAffineTransformMakeScale(
-                0.985,
-                0.985
+                0.97,
+                0.97
             );
 
         self.alpha = 0.72;
@@ -672,12 +839,13 @@ CAGradientLayer *reflectionLayer;
 
 
 - (void)endTrackingWithTouch:(UITouch *)touch
-                    withEvent:(UIEvent *)event {
+                    withEvent:(UIEvent *)event
+{
+    [super endTrackingWithTouch:
+        touch
+        withEvent:event];
 
-    [super endTrackingWithTouch:touch
-                       withEvent:event];
-
-    [UIView animateWithDuration:0.15
+    [UIView animateWithDuration:0.16
                      animations:^{
 
         self.transform =
@@ -690,11 +858,11 @@ CAGradientLayer *reflectionLayer;
 }
 
 
-- (void)cancelTrackingWithEvent:(UIEvent *)event {
-
+- (void)cancelTrackingWithEvent:(UIEvent *)event
+{
     [super cancelTrackingWithEvent:event];
 
-    [UIView animateWithDuration:0.15
+    [UIView animateWithDuration:0.16
                      animations:^{
 
         self.transform =
@@ -707,31 +875,28 @@ CAGradientLayer *reflectionLayer;
 @end
 
 
-#pragma mark - Create Search Glass
+#pragma mark - Create
 
-static void SGSRemoveSearchBar(void) {
-
-    if (sgsContainer) {
-
+static void SGSRemoveSearchBar(void)
+{
+    if (sgsContainer)
+    {
         [sgsContainer removeFromSuperview];
-
         sgsContainer = nil;
     }
 }
 
 
-static void SGSCreateSearchBar(void) {
-
+static void SGSCreateSearchBar(void)
+{
     SGSLoadPreferences();
 
     if (!sgsEnabled)
         return;
 
     if (sgsContainer &&
-        sgsContainer.superview) {
-
+        sgsContainer.superview)
         return;
-    }
 
     UIWindow *window =
         SGSGetSettingsWindow();
@@ -758,66 +923,62 @@ static void SGSCreateSearchBar(void) {
 
 
     /*
-     * Search control
+     * Barra
      */
 
-    SGSSearchControl *searchControl =
+    SGSSearchControl *control =
         [[SGSSearchControl alloc] init];
 
-    searchControl.translatesAutoresizingMaskIntoConstraints =
+    control.translatesAutoresizingMaskIntoConstraints =
         NO;
 
     [sgsContainer addSubview:
-        searchControl];
+        control];
 
     [window addSubview:
         sgsContainer];
 
 
     /*
-     * Position
+     * Tamanho reduzido
      */
 
     [NSLayoutConstraint activateConstraints:@[
 
         [sgsContainer.leadingAnchor
             constraintEqualToAnchor:
-            window.leadingAnchor
-            constant:16.0],
+                window.leadingAnchor
+                constant:24.0],
 
         [sgsContainer.trailingAnchor
             constraintEqualToAnchor:
-            window.trailingAnchor
-            constant:-16.0],
+                window.trailingAnchor
+                constant:-24.0],
 
         [sgsContainer.bottomAnchor
             constraintEqualToAnchor:
-            window.safeAreaLayoutGuide.bottomAnchor
-            constant:-12.0],
+                window.safeAreaLayoutGuide.bottomAnchor
+                constant:-8.0],
 
         [sgsContainer.heightAnchor
-            constraintEqualToConstant:56.0],
+            constraintEqualToConstant:48.0],
 
 
-        /*
-         * Search control
-         */
-
-        [searchControl.leadingAnchor
+        [control.leadingAnchor
             constraintEqualToAnchor:
-            sgsContainer.leadingAnchor],
+                sgsContainer.leadingAnchor],
 
-        [searchControl.trailingAnchor
+        [control.trailingAnchor
             constraintEqualToAnchor:
-            sgsContainer.trailingAnchor],
+                sgsContainer.trailingAnchor],
 
-        [searchControl.topAnchor
+        [control.topAnchor
             constraintEqualToAnchor:
-            sgsContainer.topAnchor],
+                sgsContainer.topAnchor],
 
-        [searchControl.bottomAnchor
+        [control.bottomAnchor
             constraintEqualToAnchor:
-            sgsContainer.bottomAnchor]
+                sgsContainer.bottomAnchor]
 
     ]];
 }
@@ -825,10 +986,11 @@ static void SGSCreateSearchBar(void) {
 
 #pragma mark - Refresh
 
-static void SGSRefresh(void) {
-
+static void SGSRefresh(void)
+{
     dispatch_async(
-        dispatch_get_main_queue(), ^{
+        dispatch_get_main_queue(),
+        ^{
 
         SGSRemoveSearchBar();
 
@@ -840,12 +1002,12 @@ static void SGSRefresh(void) {
 }
 
 
-#pragma mark - View Controller Hook
+#pragma mark - UIViewController
 
 %hook UIViewController
 
-- (void)viewDidAppear:(BOOL)animated {
-
+- (void)viewDidAppear:(BOOL)animated
+{
     %orig;
 
     NSString *bundleIdentifier =
@@ -854,97 +1016,83 @@ static void SGSRefresh(void) {
 
     if (![bundleIdentifier
           isEqualToString:
-          @"com.apple.Preferences"]) {
-
+            @"com.apple.Preferences"])
         return;
-    }
+
+    dispatch_after(
+        dispatch_time(
+            DISPATCH_TIME_NOW,
+            0.25 * NSEC_PER_SEC
+        ),
+        dispatch_get_main_queue(),
+        ^{
+
+        SGSCreateSearchBar();
+    });
+}
+
+%end
+
+
+#pragma mark - UIApplication
+
+%hook UIApplication
+
+- (void)applicationDidBecomeActive:
+    (UIApplication *)application
+{
+    %orig;
+
+    NSString *bundleIdentifier =
+        [[NSBundle mainBundle]
+            bundleIdentifier];
+
+    if (![bundleIdentifier
+          isEqualToString:
+            @"com.apple.Preferences"])
+        return;
 
     dispatch_after(
         dispatch_time(
             DISPATCH_TIME_NOW,
             0.30 * NSEC_PER_SEC
         ),
-        dispatch_get_main_queue(), ^{
+        dispatch_get_main_queue(),
+        ^{
 
         SGSCreateSearchBar();
     });
 }
 
 %end
-
-
-#pragma mark - Application Hook
-
-%hook UIApplication
-
-- (void)applicationDidBecomeActive:
-    (UIApplication *)application {
-
-    %orig;
-
-    NSString *bundleIdentifier =
-        [[NSBundle mainBundle]
-            bundleIdentifier];
-
-    if (![bundleIdentifier
-          isEqualToString:
-          @"com.apple.Preferences"]) {
-
-        return;
-    }
-
-    dispatch_after(
-        dispatch_time(
-            DISPATCH_TIME_NOW,
-            0.35 * NSEC_PER_SEC
-        ),
-        dispatch_get_main_queue(), ^{
-
-        SGSCreateSearchBar();
-    });
-}
-
-%end
-
-
-#pragma mark - Preferences Notification
-
-static void SGSPreferencesChanged(
-    CFNotificationCenterRef center,
-    void *observer,
-    CFStringRef name,
-    const void *object,
-    CFDictionaryRef userInfo) {
-
-    dispatch_async(
-        dispatch_get_main_queue(), ^{
-
-        SGSRefresh();
-    });
-}
 
 
 #pragma mark - Constructor
 
-%ctor {
-
+%ctor
+{
     NSString *bundleIdentifier =
         [[NSBundle mainBundle]
             bundleIdentifier];
 
     if (![bundleIdentifier
           isEqualToString:
-          @"com.apple.Preferences"]) {
-
+            @"com.apple.Preferences"])
         return;
-    }
 
     SGSLoadPreferences();
 
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         NULL,
-        SGSPreferencesChanged,
+        (CFNotificationCallback)^(CFNotificationCenterRef center,
+                                  void *observer,
+                                  CFStringRef name,
+                                  const void *object,
+                                  CFDictionaryRef userInfo)
+        {
+            SGSRefresh();
+        },
         CFSTR(
             "com.samuel.settingsglasssearch/preferencesChanged"
         ),
@@ -953,14 +1101,16 @@ static void SGSPreferencesChanged(
     );
 
     dispatch_async(
-        dispatch_get_main_queue(), ^{
+        dispatch_get_main_queue(),
+        ^{
 
         dispatch_after(
             dispatch_time(
                 DISPATCH_TIME_NOW,
                 0.50 * NSEC_PER_SEC
             ),
-            dispatch_get_main_queue(), ^{
+            dispatch_get_main_queue(),
+            ^{
 
             SGSCreateSearchBar();
         });
