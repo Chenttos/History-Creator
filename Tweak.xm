@@ -242,12 +242,21 @@ static void SGActivateSettingsSearch(UIViewController *controller) {
             return;
         }
 
-        // Last fallback: locate any UISearchBar in the Settings window.
-        for (UIWindow *window in UIApplication.sharedApplication.windows) {
-            UISearchBar *globalBar = SGFindSearchBar(window);
-            if (globalBar) {
-                [globalBar becomeFirstResponder];
-                return;
+        // Final fallback: search only windows belonging to the current scene.
+        // This avoids the deprecated UIApplication.windows API on iOS 15+.
+        if (@available(iOS 13.0, *)) {
+            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+                UIWindowScene *windowScene = (UIWindowScene *)scene;
+                if (scene.activationState == UISceneActivationStateUnattached) continue;
+
+                for (UIWindow *window in windowScene.windows) {
+                    UISearchBar *globalBar = SGFindSearchBar(window);
+                    if (globalBar) {
+                        [globalBar becomeFirstResponder];
+                        return;
+                    }
+                }
             }
         }
     });
