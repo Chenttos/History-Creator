@@ -1,0 +1,9 @@
+Package: com.samuel.searchglass
+Name: SearchGlass
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Glass search bar for iOS Settings
+Maintainer: Samuel
+Author: Samuel
+Section: Tweaks
+Depends: firmware (>= 16.0)
