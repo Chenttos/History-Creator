@@ -264,12 +264,11 @@ static NSString *SGEffectiveFilterType(UIView *view) {
      * filter, leaving the existing blur/specular design unchanged.
      */
     SGSetValue(glassFilter, @6.0, @"inputRefraction");
-        SGSetValue(glassFilter, @4.0, @"inputDisplacement");
-        SGSetValue(glassFilter, @4.0, @"inputDisplacementRadius");
-        SGSetValue(glassFilter, @3.0, @"inputDistortion");
-        SGSetValue(glassFilter, @2.0, @"inputDistortionScale");
-    SGSetValue(glassFilter, @2.15, @"inputRefractiveIndex");
     SGSetValue(glassFilter, @4.0, @"inputDisplacement");
+    SGSetValue(glassFilter, @4.0, @"inputDisplacementRadius");
+    SGSetValue(glassFilter, @3.0, @"inputDistortion");
+    SGSetValue(glassFilter, @2.0, @"inputDistortionScale");
+    SGSetValue(glassFilter, @2.15, @"inputRefractiveIndex");
     SGSetValue(glassFilter, @1.20, @"inputScale");
     SGSetValue(glassFilter, @1.45, @"inputBlur");
     SGSetValue(glassFilter, @1.15, @"inputSpecular");
@@ -557,17 +556,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     [self addSubview:self.micIcon];
 
-    // Dedicated topmost outline so the thin border stays visible over the glass.
-
-    self.borderOverlay.backgroundColor = UIColor.clearColor;
-    self.borderOverlay.userInteractionEnabled = NO;
-    self.borderOverlay.autoresizingMask =
-        UIViewAutoresizingFlexibleWidth |
-        UIViewAutoresizingFlexibleHeight;
-
-
-    [self addSubview:self.borderOverlay];
-
     [self updateTextAppearance];
 }
 
@@ -620,8 +608,6 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
     self.layer.cornerRadius = self.glassView.cornerRadius;
     self.layer.cornerCurve = kCACornerCurveContinuous;
-
-    self.borderOverlay.frame = self.bounds;
 
 
     self.searchIcon.frame =
