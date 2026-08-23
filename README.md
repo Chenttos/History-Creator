@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/iOS-16-blue?style=for-the-badge&logo=apple" />
   <img src="https://img.shields.io/badge/Jailbreak-Rootless-purple?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Theos-Build-orange?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Architecture-arm64%20%2F%20arm64e-green?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Architecture-arm64-green?style=for-the-badge" />
 </p>
 
 ---
