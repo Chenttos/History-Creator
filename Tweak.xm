@@ -600,8 +600,7 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 #pragma mark - Search action
 
 - (void)searchPressed:(id)sender {
-    UIViewController *vc =
-        [self nearestViewController];
+    UIViewController *vc = [self nearestViewController];
 
     if (!vc)
         return;
@@ -616,52 +615,67 @@ static NSString *SGEffectiveFilterType(UIView *view) {
             popToRootViewControllerAnimated:YES];
     }
 
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW,
-                      (int64_t)(0.30 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
-        ^{
-            UIViewController *root =
-                navigationController
-                ? navigationController.viewControllers.firstObject
-                : vc;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Use the same search activation behavior from the supplied
+        // SearchGlass version: first use the real Settings search bar.
+        UISearchBar *bar = [self findSearchBarInView:vc.view];
 
-            if (!root)
-                return;
+        if (bar) {
+            [bar becomeFirstResponder];
+            return;
+        }
 
-            UISearchBar *searchBar =
-                [self findSearchBarInView:root.view];
+        // If the search bar is not currently loaded, look through the
+        // current Settings view hierarchy after returning to the root.
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW,
+                          (int64_t)(0.30 * NSEC_PER_SEC)),
+            dispatch_get_main_queue(),
+            ^{
+                UIViewController *root =
+                    navigationController
+                    ? navigationController.viewControllers.firstObject
+                    : vc;
 
-            if (searchBar) {
-                UIScrollView *scroll =
-                    [self findScrollViewContainingView:searchBar];
+                if (!root)
+                    return;
 
-                if (scroll) {
-                    CGRect rect =
-                        [searchBar convertRect:searchBar.bounds
-                                        toView:scroll];
+                UISearchBar *searchBar =
+                    [self findSearchBarInView:root.view];
 
-                    [scroll
-                        scrollRectToVisible:rect
-                        animated:YES];
+                if (searchBar) {
+                    UIScrollView *scroll =
+                        [self findScrollViewContainingView:searchBar];
+
+                    if (scroll) {
+                        CGRect rect =
+                            [searchBar convertRect:searchBar.bounds
+                                            toView:scroll];
+
+                        [scroll
+                            scrollRectToVisible:rect
+                            animated:YES];
+                    }
+
+                    [searchBar becomeFirstResponder];
+                    return;
                 }
 
-                [searchBar becomeFirstResponder];
-                return;
-            }
+                // Last retry, matching the supplied tweak's delayed
+                // activation behavior.
+                dispatch_after(
+                    dispatch_time(DISPATCH_TIME_NOW,
+                                  (int64_t)(0.25 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(),
+                    ^{
+                        UISearchBar *retry =
+                            [self findSearchBarInView:root.view];
 
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW,
-                              (int64_t)(0.25 * NSEC_PER_SEC)),
-                dispatch_get_main_queue(),
-                ^{
-                    UISearchBar *retry =
-                        [self findSearchBarInView:root.view];
-
-                    if (retry)
-                        [retry becomeFirstResponder];
-                });
-        });
+                        if (retry)
+                            [retry becomeFirstResponder];
+                    });
+            });
+    });
 }
 
 #pragma mark - View controller finder
