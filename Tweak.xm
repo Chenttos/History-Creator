@@ -395,6 +395,13 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 @property(nonatomic, strong) UIImageView *micIcon;
 @end
 
+@interface SGSearchButton ()
+- (UIViewController *)nearestViewController;
+- (UISearchController *)findSearchController:(UIViewController *)controller;
+- (UISearchBar *)findSearchBarInView:(UIView *)view;
+- (UIScrollView *)findScrollViewContainingView:(UIView *)target;
+@end
+
 @implementation SGSearchButton
 
 
@@ -737,17 +744,17 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     return nil;
 }
 
-- (UIViewController *)findSearchController:
+- (UISearchController *)findSearchController:
     (UIViewController *)controller {
 
     if (!controller)
         return nil;
 
     if ([controller isKindOfClass:[UISearchController class]])
-        return controller;
+        return (UISearchController *)controller;
 
     for (UIViewController *child in controller.childViewControllers) {
-        UIViewController *found =
+        UISearchController *found =
             [self findSearchController:child];
 
         if (found)
@@ -755,64 +762,11 @@ static NSString *SGEffectiveFilterType(UIView *view) {
     }
 
     if (controller.presentedViewController) {
-        UIViewController *found =
+        UISearchController *found =
             [self findSearchController:controller.presentedViewController];
 
         if (found)
             return found;
-    }
-
-    return nil;
-}
-
-#pragma mark - SearchBar finder
-
-- (UISearchBar *)findSearchBarInView:(UIView *)view {
-    if (!view)
-        return nil;
-
-    if ([view isKindOfClass:[UISearchBar class]])
-        return (UISearchBar *)view;
-
-    for (UIView *subview in view.subviews) {
-        UISearchBar *result =
-            [self findSearchBarInView:subview];
-
-        if (result)
-            return result;
-    }
-
-    return nil;
-}
-
-#pragma mark - ScrollView finder
-
-- (UIScrollView *)findScrollViewContainingView:(UIView *)target {
-    UIView *view = target.superview;
-
-    while (view) {
-        if ([view isKindOfClass:[UIScrollView class]])
-            return (UIScrollView *)view;
-
-        view = view.superview;
-    }
-
-    return nil;
-}
-
-#pragma mark - View controller finder
-
-- (UIViewController *)nearestViewController {
-    UIResponder *responder = self;
-
-    while (responder) {
-        responder = [responder nextResponder];
-
-        if ([responder
-             isKindOfClass:[UIViewController class]]) {
-
-            return (UIViewController *)responder;
-        }
     }
 
     return nil;
@@ -874,30 +828,40 @@ static BOOL SGIsMainSettingsController(
 
     NSString *className = NSStringFromClass(controller.class);
 
-    // Explicit Settings root controller names.
-    if ([className isEqualToString:@"PSRootListController"] ||
-        [className isEqualToString:@"PSRootController"]) {
-        return YES;
-    }
-
-    // Fallback: only the first controller in the Settings navigation
-    // stack is considered the home page. Every pushed controller is denied.
-    UINavigationController *nav = controller.navigationController;
-
-    if (nav) {
-        UIViewController *root = nav.viewControllers.firstObject;
-
-        if (root != controller)
-            return NO;
-    }
-
-    // Never show it in search-related controllers.
-    if ([className rangeOfString:@"Search"
-                         options:NSCaseInsensitiveSearch].location != NSNotFound) {
+    /*
+     * IMPORTANT:
+     * The glass search button is ONLY allowed on the actual
+     * Settings home/root page.
+     *
+     * Do not use a generic "first controller" fallback here,
+     * because other Settings controllers can temporarily become
+     * the first/visible controller during transitions.
+     */
+    if (![className isEqualToString:@"PSRootListController"] &&
+        ![className isEqualToString:@"PSRootController"]) {
         return NO;
     }
 
-    return nav ? (nav.viewControllers.count == 1) : NO;
+    UINavigationController *nav = controller.navigationController;
+
+    if (nav && nav.viewControllers.firstObject != controller)
+        return NO;
+
+    return YES;
+}
+
+static void SGRemoveSearchGlass(
+    UIViewController *controller
+) {
+    if (!controller)
+        return;
+
+    UIView *view = controller.view;
+    SGSearchButton *button =
+        (SGSearchButton *)[view viewWithTag:kSGSearchGlassTag];
+
+    if (button)
+        [button removeFromSuperview];
 }
 
 static void SGInstallSearchGlass(
@@ -969,10 +933,11 @@ static void SGInstallSearchGlass(
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
 
-    if (!SGIsMainSettingsController(self))
-        return;
-
-    SGInstallSearchGlass(self);
+    if (SGIsMainSettingsController(self)) {
+        SGInstallSearchGlass(self);
+    } else {
+        SGRemoveSearchGlass(self);
+    }
 }
 
 %end
@@ -994,8 +959,18 @@ static void SGInstallSearchGlass(
     UIViewController *top =
         self.topViewController;
 
-    if (SGIsMainSettingsController(top))
+    if (SGIsMainSettingsController(top)) {
         SGInstallSearchGlass(top);
+    } else {
+        /*
+         * Remove it while any child Settings page is visible.
+         * This guarantees the pill cannot remain visible on
+         * sub-pages during navigation/interactive transitions.
+         */
+        for (UIViewController *controller in self.viewControllers) {
+            SGRemoveSearchGlass(controller);
+        }
+    }
 }
 
 %end
