@@ -14,6 +14,10 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 
+@interface UISearchBar (SGSearchPrivate)
+- (void)searchFieldBecomeFirstResponder;
+@end
+
 #pragma mark - Liquid Glass constants
 
 static NSString * const kSGFilterType = @"dylv.liquidglass.searchpill";
@@ -601,81 +605,199 @@ static NSString *SGEffectiveFilterType(UIView *view) {
 
 - (void)searchPressed:(id)sender {
     UIViewController *vc = [self nearestViewController];
-
     if (!vc)
         return;
 
-    UINavigationController *navigationController =
-        vc.navigationController;
+    UINavigationController *nav = vc.navigationController;
 
-    if (navigationController &&
-        navigationController.viewControllers.count > 1) {
-
-        [navigationController
-            popToRootViewControllerAnimated:YES];
+    // The real Settings search lives on the root controller.
+    if (nav && nav.viewControllers.count > 1) {
+        [nav popToRootViewControllerAnimated:YES];
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Use the same search activation behavior from the supplied
-        // SearchGlass version: first use the real Settings search bar.
-        UISearchBar *bar = [self findSearchBarInView:vc.view];
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.20 * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), ^{
+            UIViewController *root =
+                nav ? nav.viewControllers.firstObject : vc;
 
-        if (bar) {
-            [bar becomeFirstResponder];
-            return;
-        }
+            if (!root)
+                return;
 
-        // If the search bar is not currently loaded, look through the
-        // current Settings view hierarchy after returning to the root.
-        dispatch_after(
-            dispatch_time(DISPATCH_TIME_NOW,
-                          (int64_t)(0.30 * NSEC_PER_SEC)),
-            dispatch_get_main_queue(),
-            ^{
-                UIViewController *root =
-                    navigationController
-                    ? navigationController.viewControllers.firstObject
-                    : vc;
+            // 1. Use the actual UISearchBar when it is already loaded.
+            UISearchBar *bar = [self findSearchBarInView:root.view];
 
-                if (!root)
-                    return;
+            if (bar) {
+                UIScrollView *scroll =
+                    [self findScrollViewContainingView:bar];
 
-                UISearchBar *searchBar =
-                    [self findSearchBarInView:root.view];
+                if (scroll) {
+                    CGRect rect =
+                        [bar convertRect:bar.bounds toView:scroll];
 
-                if (searchBar) {
-                    UIScrollView *scroll =
-                        [self findScrollViewContainingView:searchBar];
-
-                    if (scroll) {
-                        CGRect rect =
-                            [searchBar convertRect:searchBar.bounds
-                                            toView:scroll];
-
-                        [scroll
-                            scrollRectToVisible:rect
-                            animated:YES];
-                    }
-
-                    [searchBar becomeFirstResponder];
-                    return;
+                    [scroll scrollRectToVisible:rect animated:YES];
                 }
 
-                // Last retry, matching the supplied tweak's delayed
-                // activation behavior.
-                dispatch_after(
-                    dispatch_time(DISPATCH_TIME_NOW,
-                                  (int64_t)(0.25 * NSEC_PER_SEC)),
-                    dispatch_get_main_queue(),
-                    ^{
-                        UISearchBar *retry =
-                            [self findSearchBarInView:root.view];
+                if ([bar respondsToSelector:
+                     @selector(searchFieldBecomeFirstResponder)]) {
+                    [bar searchFieldBecomeFirstResponder];
+                } else {
+                    [bar becomeFirstResponder];
+                }
+                return;
+            }
 
-                        if (retry)
-                            [retry becomeFirstResponder];
-                    });
-            });
-    });
+            // 2. Some Settings versions keep the UISearchController in
+            // the controller hierarchy rather than directly in the view.
+            UISearchController *searchController =
+                [self findSearchController:root];
+
+            if (searchController) {
+                searchController.active = YES;
+
+                UISearchBar *searchBar =
+                    searchController.searchBar;
+
+                if ([searchBar respondsToSelector:
+                     @selector(searchFieldBecomeFirstResponder)]) {
+                    [searchBar searchFieldBecomeFirstResponder];
+                } else {
+                    [searchBar becomeFirstResponder];
+                }
+                return;
+            }
+
+            // 3. The search UI can be attached to a window/scene.
+            if (@available(iOS 13.0, *)) {
+                for (UIScene *scene in
+                     UIApplication.sharedApplication.connectedScenes) {
+
+                    if (![scene isKindOfClass:[UIWindowScene class]])
+                        continue;
+
+                    if (scene.activationState ==
+                        UISceneActivationStateUnattached)
+                        continue;
+
+                    UIWindowScene *windowScene =
+                        (UIWindowScene *)scene;
+
+                    for (UIWindow *window in windowScene.windows) {
+                        UISearchBar *windowBar =
+                            [self findSearchBarInView:window];
+
+                        if (!windowBar)
+                            continue;
+
+                        if ([windowBar respondsToSelector:
+                             @selector(searchFieldBecomeFirstResponder)]) {
+                            [windowBar searchFieldBecomeFirstResponder];
+                        } else {
+                            [windowBar becomeFirstResponder];
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // 4. Settings may finish creating its search bar a little later.
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW,
+                              (int64_t)(0.30 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                    UISearchBar *retry =
+                        [self findSearchBarInView:root.view];
+
+                    if (!retry)
+                        return;
+
+                    if ([retry respondsToSelector:
+                         @selector(searchFieldBecomeFirstResponder)]) {
+                        [retry searchFieldBecomeFirstResponder];
+                    } else {
+                        [retry becomeFirstResponder];
+                    }
+                });
+        });
+}
+
+#pragma mark - View controller finder
+
+- (UIViewController *)nearestViewController {
+    UIResponder *responder = self;
+
+    while (responder) {
+        responder = [responder nextResponder];
+
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            return (UIViewController *)responder;
+        }
+    }
+
+    return nil;
+}
+
+- (UIViewController *)findSearchController:
+    (UIViewController *)controller {
+
+    if (!controller)
+        return nil;
+
+    if ([controller isKindOfClass:[UISearchController class]])
+        return controller;
+
+    for (UIViewController *child in controller.childViewControllers) {
+        UIViewController *found =
+            [self findSearchController:child];
+
+        if (found)
+            return found;
+    }
+
+    if (controller.presentedViewController) {
+        UIViewController *found =
+            [self findSearchController:controller.presentedViewController];
+
+        if (found)
+            return found;
+    }
+
+    return nil;
+}
+
+#pragma mark - SearchBar finder
+
+- (UISearchBar *)findSearchBarInView:(UIView *)view {
+    if (!view)
+        return nil;
+
+    if ([view isKindOfClass:[UISearchBar class]])
+        return (UISearchBar *)view;
+
+    for (UIView *subview in view.subviews) {
+        UISearchBar *result =
+            [self findSearchBarInView:subview];
+
+        if (result)
+            return result;
+    }
+
+    return nil;
+}
+
+#pragma mark - ScrollView finder
+
+- (UIScrollView *)findScrollViewContainingView:(UIView *)target {
+    UIView *view = target.superview;
+
+    while (view) {
+        if ([view isKindOfClass:[UIScrollView class]])
+            return (UIScrollView *)view;
+
+        view = view.superview;
+    }
+
+    return nil;
 }
 
 #pragma mark - View controller finder
