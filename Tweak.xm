@@ -1246,7 +1246,7 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
 
     if (!objc_getAssociatedObject(table, &kSGGeneralOriginalContentInsetKey)) {
         UIEdgeInsets original = table.contentInset;
-        UIEdgeInsets indicator = table.scrollIndicatorInsets;
+        UIEdgeInsets indicator = table.verticalScrollIndicatorInsets;
 
         objc_setAssociatedObject(
             table,
@@ -1276,7 +1276,7 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
                 &kSGGeneralOriginalIndicatorInsetKey) UIEdgeInsetsValue];
 
         indicator.top += bannerHeight + gap;
-        table.scrollIndicatorInsets = indicator;
+        table.verticalScrollIndicatorInsets = indicator;
 
         objc_setAssociatedObject(
             table,
@@ -1383,7 +1383,7 @@ static void SGRemoveGeneralBanner(UIViewController *controller) {
             table.contentInset = contentValue.UIEdgeInsetsValue;
 
         if (indicatorValue)
-            table.scrollIndicatorInsets =
+            table.verticalScrollIndicatorInsets =
                 indicatorValue.UIEdgeInsetsValue;
 
         objc_setAssociatedObject(
