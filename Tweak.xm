@@ -829,23 +829,47 @@ static BOOL SGIsMainSettingsController(
     NSString *className = NSStringFromClass(controller.class);
 
     /*
-     * IMPORTANT:
-     * The glass search button is ONLY allowed on the actual
-     * Settings home/root page.
-     *
-     * Do not use a generic "first controller" fallback here,
-     * because other Settings controllers can temporarily become
-     * the first/visible controller during transitions.
+     * Settings has used more than one root controller name across
+     * iOS versions. Prefer the explicit root names, but keep the
+     * navigation-stack fallback so the button still appears on the
+     * actual Settings home page.
      */
-    if (![className isEqualToString:@"PSRootListController"] &&
-        ![className isEqualToString:@"PSRootController"]) {
+    if ([className isEqualToString:@"PSRootListController"] ||
+        [className isEqualToString:@"PSRootController"]) {
+        UINavigationController *nav = controller.navigationController;
+
+        if (!nav ||
+            nav.viewControllers.firstObject == controller) {
+            return YES;
+        }
+
         return NO;
     }
 
+    /*
+     * Fallback for iOS versions where the Settings root controller
+     * has another private class name:
+     *
+     * - must be a PSListController
+     * - must be the first controller in the navigation stack
+     * - must be the only controller currently pushed
+     * - search-related controllers are explicitly rejected
+     */
     UINavigationController *nav = controller.navigationController;
 
-    if (nav && nav.viewControllers.firstObject != controller)
+    if (!nav)
         return NO;
+
+    if (nav.viewControllers.firstObject != controller)
+        return NO;
+
+    if (nav.viewControllers.count != 1)
+        return NO;
+
+    if ([className rangeOfString:@"Search"
+                         options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        return NO;
+    }
 
     return YES;
 }
