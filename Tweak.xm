@@ -958,6 +958,10 @@ static NSString * const kSGAboutIconPath =
 static NSString * const kSGSoftwareUpdateIconPath =
     @"/Library/Application Support/SearchGlass/SoftwareUpdateIcon.png";
 
+static char kSGGeneralOriginalContentInsetKey;
+static char kSGGeneralOriginalIndicatorInsetKey;
+static char kSGGeneralBannerInsetAppliedKey;
+
 static BOOL SGIsGeneralController(UIViewController *controller) {
     if (!controller)
         return NO;
@@ -1042,7 +1046,7 @@ static UIView *SGGeneralBannerView(UIViewController *controller) {
     banner = [[UIView alloc] initWithFrame:CGRectZero];
     banner.tag = kSGGeneralBannerTag;
     banner.backgroundColor = UIColor.clearColor;
-    banner.layer.cornerRadius = 28.0;
+    banner.layer.cornerRadius = 24.0;
     banner.layer.cornerCurve = kCACornerCurveContinuous;
     banner.clipsToBounds = YES;
     banner.userInteractionEnabled = NO;
@@ -1229,33 +1233,74 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
     if (!about || !banner)
         return;
 
-    CGRect aboutFrame =
-        [about convertRect:about.bounds toView:controller.view];
-
+    /*
+     * Reserve real table space for the banner. Without this, the
+     * native About and Software Update cells remain underneath it.
+     */
     CGFloat side = 20.0;
-    CGFloat bannerHeight = 168.0;
-    CGFloat gap = 14.0;
+    CGFloat bannerHeight = 154.0;
+    CGFloat gap = 12.0;
 
     CGFloat width =
         CGRectGetWidth(controller.view.bounds) - side * 2.0;
 
-    /*
-     * On iOS 16 the About cell begins too high for a full 168pt
-     * banner to fit entirely above it. The previous calculation
-     * therefore produced a negative Y and clipped the banner.
-     *
-     * Keep the banner in the visible content area, directly above
-     * the About section, without letting it slide underneath the
-     * navigation bar.
-     */
+    if (!objc_getAssociatedObject(table, &kSGGeneralOriginalContentInsetKey)) {
+        UIEdgeInsets original = table.contentInset;
+        UIEdgeInsets indicator = table.scrollIndicatorInsets;
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralOriginalContentInsetKey,
+            [NSValue valueWithUIEdgeInsets:original],
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralOriginalIndicatorInsetKey,
+            [NSValue valueWithUIEdgeInsets:indicator],
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    if (!objc_getAssociatedObject(table, &kSGGeneralBannerInsetAppliedKey)) {
+        UIEdgeInsets original =
+            [objc_getAssociatedObject(
+                table,
+                &kSGGeneralOriginalContentInsetKey) UIEdgeInsetsValue];
+
+        original.top += bannerHeight + gap;
+        table.contentInset = original;
+
+        UIEdgeInsets indicator =
+            [objc_getAssociatedObject(
+                table,
+                &kSGGeneralOriginalIndicatorInsetKey) UIEdgeInsetsValue];
+
+        indicator.top += bannerHeight + gap;
+        table.scrollIndicatorInsets = indicator;
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralBannerInsetAppliedKey,
+            @YES,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        [table setNeedsLayout];
+        [table layoutIfNeeded];
+    }
+
+    CGRect aboutFrame =
+        [about convertRect:about.bounds toView:controller.view];
+
+    CGFloat y =
+        CGRectGetMinY(aboutFrame) -
+        bannerHeight -
+        gap;
+
     CGFloat minimumY =
         controller.view.safeAreaInsets.top + 8.0;
 
-    CGFloat y =
-        MAX(minimumY,
-            CGRectGetMinY(aboutFrame) -
-            bannerHeight -
-            gap);
+    if (y < minimumY)
+        y = minimumY;
 
     banner.frame =
         CGRectMake(side, y, width, bannerHeight);
@@ -1278,20 +1323,33 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
 
     material.frame = banner.bounds;
 
+    /*
+     * Compact card layout: the supplied banner icon is intentionally
+     * smaller and rounded, while the text gets its own full-width
+     * column so it cannot overflow the card.
+     */
     icon.frame =
-        CGRectMake(28.0, 22.0, 82.0, 82.0);
+        CGRectMake(24.0, 22.0, 58.0, 58.0);
+
+    icon.layer.cornerRadius = 15.0;
+    icon.layer.cornerCurve = kCACornerCurveContinuous;
+    icon.clipsToBounds = YES;
 
     title.frame =
-        CGRectMake(28.0,
-                   106.0,
-                   width - 56.0,
-                   30.0);
+        CGRectMake(94.0,
+                   22.0,
+                   width - 118.0,
+                   31.0);
 
     subtitle.frame =
-        CGRectMake(28.0,
-                   137.0,
-                   width - 56.0,
-                   60.0);
+        CGRectMake(94.0,
+                   54.0,
+                   width - 118.0,
+                   78.0);
+
+    subtitle.numberOfLines = 3;
+    subtitle.adjustsFontSizeToFitWidth = YES;
+    subtitle.minimumScaleFactor = 0.85;
 
     /*
      * Banner must remain behind the table cells but above the
@@ -1301,8 +1359,51 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
 }
 
 static void SGRemoveGeneralBanner(UIViewController *controller) {
+    if (!controller)
+        return;
+
     UIView *banner =
         [controller.view viewWithTag:kSGGeneralBannerTag];
+
+    UITableView *table =
+        SGFindSettingsTableView(controller.view);
+
+    if (table) {
+        NSValue *contentValue =
+            objc_getAssociatedObject(
+                table,
+                &kSGGeneralOriginalContentInsetKey);
+
+        NSValue *indicatorValue =
+            objc_getAssociatedObject(
+                table,
+                &kSGGeneralOriginalIndicatorInsetKey);
+
+        if (contentValue)
+            table.contentInset = contentValue.UIEdgeInsetsValue;
+
+        if (indicatorValue)
+            table.scrollIndicatorInsets =
+                indicatorValue.UIEdgeInsetsValue;
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralBannerInsetAppliedKey,
+            nil,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralOriginalContentInsetKey,
+            nil,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        objc_setAssociatedObject(
+            table,
+            &kSGGeneralOriginalIndicatorInsetKey,
+            nil,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
 
     if (banner)
         [banner removeFromSuperview];
