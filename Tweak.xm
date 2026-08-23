@@ -1238,8 +1238,8 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
      * native About and Software Update cells remain underneath it.
      */
     CGFloat side = 20.0;
-    CGFloat bannerHeight = 154.0;
-    CGFloat gap = 12.0;
+    CGFloat bannerHeight = 238.0;
+    CGFloat gap = 18.0;
 
     CGFloat width =
         CGRectGetWidth(controller.view.bounds) - side * 2.0;
@@ -1324,32 +1324,39 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
     material.frame = banner.bounds;
 
     /*
-     * Compact card layout: the supplied banner icon is intentionally
-     * smaller and rounded, while the text gets its own full-width
-     * column so it cannot overflow the card.
+     * Stacked iOS 26/27-style banner:
+     * icon on top, "General" below it, and the descriptive
+     * text below the title. Everything is centered so the
+     * text stays inside the card on smaller iPhone/iPad widths.
      */
-    icon.frame =
-        CGRectMake(24.0, 22.0, 58.0, 58.0);
+    CGFloat contentWidth = width - 40.0;
+    CGFloat iconSize = 72.0;
+    CGFloat iconX = (width - iconSize) * 0.5;
 
-    icon.layer.cornerRadius = 15.0;
+    icon.frame =
+        CGRectMake(iconX, 20.0, iconSize, iconSize);
+
+    icon.layer.cornerRadius = 16.0;
     icon.layer.cornerCurve = kCACornerCurveContinuous;
     icon.clipsToBounds = YES;
 
+    title.textAlignment = NSTextAlignmentCenter;
     title.frame =
-        CGRectMake(94.0,
-                   22.0,
-                   width - 118.0,
-                   31.0);
+        CGRectMake(20.0,
+                   98.0,
+                   contentWidth,
+                   34.0);
 
+    subtitle.textAlignment = NSTextAlignmentCenter;
     subtitle.frame =
-        CGRectMake(94.0,
-                   54.0,
-                   width - 118.0,
-                   78.0);
+        CGRectMake(20.0,
+                   136.0,
+                   contentWidth,
+                   82.0);
 
-    subtitle.numberOfLines = 3;
+    subtitle.numberOfLines = 4;
     subtitle.adjustsFontSizeToFitWidth = YES;
-    subtitle.minimumScaleFactor = 0.85;
+    subtitle.minimumScaleFactor = 0.82;
 
     /*
      * Banner must remain behind the table cells but above the
