@@ -1288,19 +1288,31 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
         [table layoutIfNeeded];
     }
 
-    CGRect aboutFrame =
-        [about convertRect:about.bounds toView:controller.view];
-
+    /*
+     * Keep the banner anchored near the top of the General page.
+     *
+     * Do NOT calculate its Y position from the About cell. The About
+     * cell is already being pushed down by the extra table inset above,
+     * so using its frame here can make the banner overlap About /
+     * Software Update.
+     */
     CGFloat y =
-        CGRectGetMinY(aboutFrame) -
-        bannerHeight -
-        gap;
+        controller.view.safeAreaInsets.top + 6.0;
 
-    CGFloat minimumY =
-        controller.view.safeAreaInsets.top + 8.0;
+    /*
+     * On Settings layouts where the view is not under the navigation
+     * bar, use the table's top as the reference while still keeping
+     * the banner as high as possible.
+     */
+    CGRect tableFrame =
+        [table convertRect:table.bounds toView:controller.view];
 
-    if (y < minimumY)
-        y = minimumY;
+    CGFloat tableTopY =
+        CGRectGetMinY(tableFrame) + 6.0;
+
+    if (tableTopY > y &&
+        tableTopY < controller.view.bounds.size.height - bannerHeight)
+        y = tableTopY;
 
     banner.frame =
         CGRectMake(side, y, width, bannerHeight);
