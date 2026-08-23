@@ -165,7 +165,6 @@ SearchGlass is intended for:
 - Jailbroken devices
 - Rootless jailbreak environments
 - arm64 devices
-- arm64e devices
 - Theos
 
 Compatibility with other iOS versions may vary because the tweak interacts with private UIKit / Settings classes and methods.
