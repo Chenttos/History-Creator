@@ -978,7 +978,31 @@ static BOOL SGIsGeneralController(UIViewController *controller) {
 }
 
 static UIImage *SGLoadGeneralAsset(NSString *path) {
-    return [UIImage imageWithContentsOfFile:path];
+    if (!path.length)
+        return nil;
+
+    /*
+     * Rootless jailbreaks can expose /Library through the bootstrap,
+     * while some installations keep the same files explicitly under
+     * /var/jb/Library. Try both locations so the custom artwork is
+     * reliably found after installation.
+     */
+    UIImage *image = [UIImage imageWithContentsOfFile:path];
+    if (image)
+        return image;
+
+    if ([path hasPrefix:@"/Library/"]) {
+        NSString *rootlessPath =
+            [@"/var/jb" stringByAppendingString:path];
+
+        image =
+            [UIImage imageWithContentsOfFile:rootlessPath];
+
+        if (image)
+            return image;
+    }
+
+    return nil;
 }
 
 static UIImage *SGRoundedImage(UIImage *image, CGFloat size, CGFloat radius) {
@@ -1057,11 +1081,11 @@ static UIView *SGCreateGeneralBanner(CGFloat width) {
             [[UIImageView alloc] initWithFrame:CGRectZero];
 
         icon.image =
-            SGRoundedImage(bannerImage, 62.0, 14.0);
+            SGRoundedImage(bannerImage, 52.0, 12.0);
 
         icon.contentMode = UIViewContentModeScaleAspectFit;
         icon.clipsToBounds = YES;
-        icon.layer.cornerRadius = 14.0;
+        icon.layer.cornerRadius = 12.0;
         icon.layer.cornerCurve = kCACornerCurveContinuous;
         icon.userInteractionEnabled = NO;
 
@@ -1070,7 +1094,7 @@ static UIView *SGCreateGeneralBanner(CGFloat width) {
 
     UILabel *title =
         SGMakeLabel(@"General",
-                    [UIFont systemFontOfSize:22.0
+                    [UIFont systemFontOfSize:19.0
                                       weight:UIFontWeightBold],
                     UIColor.labelColor);
 
@@ -1080,7 +1104,7 @@ static UIView *SGCreateGeneralBanner(CGFloat width) {
     UILabel *subtitle =
         SGMakeLabel(
             @"Manage your overall setup and preferences for Device, such as software updates, device language, CarPlay, AirDrop, and more.",
-            [UIFont systemFontOfSize:15.0
+            [UIFont systemFontOfSize:13.0
                               weight:UIFontWeightRegular],
             UIColor.secondaryLabelColor);
 
@@ -1150,12 +1174,12 @@ static void SGApplyGeneralIcon(UITableViewCell *cell,
      * the newer iOS Settings design.
      */
     UIImage *rounded =
-        SGRoundedImage(image, 20.0, 5.0);
+        SGRoundedImage(image, 18.0, 4.5);
 
     cell.imageView.image = rounded;
     cell.imageView.contentMode = UIViewContentModeScaleAspectFit;
     cell.imageView.clipsToBounds = YES;
-    cell.imageView.layer.cornerRadius = 5.0;
+    cell.imageView.layer.cornerRadius = 4.5;
     cell.imageView.layer.cornerCurve = kCACornerCurveContinuous;
 
     /*
@@ -1163,7 +1187,7 @@ static void SGApplyGeneralIcon(UITableViewCell *cell,
      * The cell remains completely native and keeps its own layout.
      */
     cell.imageView.bounds =
-        CGRectMake(0.0, 0.0, 20.0, 20.0);
+        CGRectMake(0.0, 0.0, 18.0, 18.0);
 }
 
 static void SGLayoutGeneralBanner(UIViewController *controller) {
@@ -1263,41 +1287,42 @@ static void SGLayoutGeneralBanner(UIViewController *controller) {
      */
     if (icon) {
         icon.frame =
-            CGRectMake(28.0,
-                       18.0,
-                       62.0,
-                       62.0);
+            CGRectMake(24.0,
+                       14.0,
+                       52.0,
+                       52.0);
 
-        icon.layer.cornerRadius = 14.0;
+        icon.layer.cornerRadius = 12.0;
         icon.layer.cornerCurve = kCACornerCurveContinuous;
         icon.clipsToBounds = YES;
     }
 
     if (title) {
         title.frame =
-            CGRectMake(28.0,
-                       86.0,
-                       bannerWidth - 56.0,
-                       28.0);
+            CGRectMake(24.0,
+                       72.0,
+                       bannerWidth - 48.0,
+                       24.0);
 
         title.font =
-            [UIFont systemFontOfSize:22.0
+            [UIFont systemFontOfSize:19.0
                               weight:UIFontWeightBold];
     }
 
     if (subtitle) {
         subtitle.frame =
-            CGRectMake(28.0,
-                       116.0,
-                       bannerWidth - 56.0,
-                       32.0);
+            CGRectMake(24.0,
+                       98.0,
+                       bannerWidth - 48.0,
+                       48.0);
 
         subtitle.font =
-            [UIFont systemFontOfSize:15.0
+            [UIFont systemFontOfSize:13.0
                               weight:UIFontWeightRegular];
 
-        subtitle.numberOfLines = 2;
-        subtitle.adjustsFontSizeToFitWidth = NO;
+        subtitle.numberOfLines = 3;
+        subtitle.adjustsFontSizeToFitWidth = YES;
+        subtitle.minimumScaleFactor = 0.80;
     }
 
     /*
