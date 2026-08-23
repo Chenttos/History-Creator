@@ -46,6 +46,8 @@ The button includes:
 - Microphone icon
 - Search label
 
+All credits from Liquid Glass source goes to Dylv “Liquid (Gl)Ass” tweak.
+
 ---
 
 ## 📍 Main Settings screen only
