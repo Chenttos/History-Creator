@@ -1131,7 +1131,7 @@ static void SGApplyGeneralIcon(UITableViewCell *cell,
         UIImageSymbolConfiguration *config =
             [UIImageSymbolConfiguration
                 configurationWithPointSize:24.0
-                weight:UIFontWeightRegular];
+                weight:UIImageSymbolWeightRegular];
 
         image = [UIImage systemImageNamed:fallbackSymbol
                         withConfiguration:config];
